@@ -2,9 +2,11 @@
 
 #include "CommandParser.h"
 #include "Config.h"
+#include "MotorDriver.h"
 #include "MotionUart.h"
 
 CommandParser commandParser;
+MotorDriver motorDriver;
 
 void setup() {
   Serial.begin(DEBUG_BAUD_RATE);
@@ -13,9 +15,10 @@ void setup() {
   Serial.println();
   Serial.println("Distributed Robot Platform - ESP32-C3 Motion Controller v0.2");
 
+  initMotorDriver(motorDriver);
   initMotionUART();
 }
 
 void loop() {
-  processIncomingCommands(commandParser);
+  processIncomingCommands(commandParser, motorDriver);
 }

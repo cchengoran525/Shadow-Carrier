@@ -6,16 +6,16 @@
 #include "Config.h"
 
 void initWiFi() {
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.mode(WIFI_AP);
 
-  Serial.print("Connecting to WiFi");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+  bool apStarted = WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASSWORD);
+  if (!apStarted) {
+    Serial.println("Failed to start WiFi access point.");
+    return;
   }
 
-  Serial.println();
-  Serial.print("WiFi connected. IP address: ");
-  Serial.println(WiFi.localIP());
+  Serial.print("WiFi AP started. SSID: ");
+  Serial.println(WIFI_AP_SSID);
+  Serial.print("Open control page: http://");
+  Serial.println(WiFi.softAPIP());
 }

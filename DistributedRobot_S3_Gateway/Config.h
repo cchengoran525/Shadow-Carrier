@@ -3,9 +3,9 @@
 
 #include <Arduino.h>
 
-// WiFi configuration. Replace these values with your router credentials.
-constexpr char WIFI_SSID[] = "YOUR_WIFI_SSID";
-constexpr char WIFI_PASSWORD[] = "YOUR_WIFI_PASSWORD";
+// SoftAP configuration. Connect your phone/computer to this WiFi.
+constexpr char WIFI_AP_SSID[] = "ShadowCarrier-S3";
+constexpr char WIFI_AP_PASSWORD[] = "shadow123456";
 
 // Serial monitor baud rate for debugging.
 constexpr uint32_t DEBUG_BAUD_RATE = 115200;

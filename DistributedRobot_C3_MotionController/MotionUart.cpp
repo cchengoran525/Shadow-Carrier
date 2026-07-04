@@ -8,7 +8,7 @@ namespace {
 
 String receiveBuffer;
 
-void handleLine(const String &line, CommandParser &parser) {
+void handleLine(const String &line, CommandParser &parser, MotorDriver &motorDriver) {
   if (line.length() == 0) {
     return;
   }
@@ -18,6 +18,7 @@ void handleLine(const String &line, CommandParser &parser) {
 
   RobotProtocol::Command command = parser.parse(line);
   parser.printCommand(command);
+  motorDriver.execute(command);
 }
 
 }  // namespace
@@ -34,7 +35,7 @@ void initMotionUART() {
   Serial.println(MOTION_UART_BAUD_RATE);
 }
 
-void processIncomingCommands(CommandParser &parser) {
+void processIncomingCommands(CommandParser &parser, MotorDriver &motorDriver) {
   while (Serial1.available() > 0) {
     char incoming = static_cast<char>(Serial1.read());
 
@@ -44,7 +45,7 @@ void processIncomingCommands(CommandParser &parser) {
 
     if (incoming == '\n') {
       receiveBuffer.trim();
-      handleLine(receiveBuffer, parser);
+      handleLine(receiveBuffer, parser, motorDriver);
       receiveBuffer = "";
       return;
     }

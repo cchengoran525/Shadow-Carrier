@@ -149,9 +149,9 @@ The framework is worth more than the shopping cart.
 
 Current implementation focuses on the low-level distributed robot platform:
 
-- `DistributedRobot_S3_Gateway/`: ESP32-S3 Network Gateway. Connects WiFi, serves a simple HTTP control page, and forwards button actions to UART as ASCII protocol commands.
-- `DistributedRobot_C3_MotionController/`: ESP32-C3 Motion Controller. Receives UART lines, parses the shared protocol, and prints parsed commands to Serial Monitor.
-- Current firmware intentionally does not enable the camera, AI, motor output, or complex behavior logic.
+- `DistributedRobot_S3_Gateway/`: ESP32-S3 Network Gateway. Starts a local WiFi access point, serves a simple HTTP control page, and forwards button actions to UART as ASCII protocol commands.
+- `DistributedRobot_C3_MotionController/`: ESP32-C3 Motion Controller. Receives UART lines, parses the shared protocol, and drives a TB6612 dual motor driver.
+- Current firmware intentionally does not enable the camera, AI, or complex behavior logic.
 
 ### v0.2 UART Protocol
 
@@ -174,6 +174,28 @@ PING
 | ESP32-C3 Motion Controller | GPIO11 | GPIO10 | 115200 |
 
 Wire S3 TX GPIO1 to C3 RX GPIO10, S3 RX GPIO2 to C3 TX GPIO11, and connect GND to GND.
+
+### S3 Control WiFi
+
+The S3 creates its own control network:
+
+```text
+SSID: ShadowCarrier-S3
+Password: shadow123456
+Control page: http://192.168.4.1
+```
+
+### C3 TB6612 Wiring
+
+| TB6612 Pin | ESP32-C3 GPIO |
+|---|---:|
+| STBY | GPIO20 |
+| AIN1 | GPIO4 |
+| AIN2 | GPIO5 |
+| PWMA | GPIO6 |
+| BIN1 | GPIO7 |
+| BIN2 | GPIO8 |
+| PWMB | GPIO9 |
 
 ### Arduino IDE
 

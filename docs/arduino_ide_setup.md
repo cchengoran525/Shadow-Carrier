@@ -41,14 +41,15 @@ Recommended Arduino IDE settings:
 | Partition Scheme | Default |
 | Serial Monitor | 115200 baud |
 
-Before upload, edit `DistributedRobot_S3_Gateway/Config.h` and set:
+The S3 starts a local control WiFi network:
 
-```cpp
-constexpr char WIFI_SSID[] = "YOUR_WIFI_SSID";
-constexpr char WIFI_PASSWORD[] = "YOUR_WIFI_PASSWORD";
+```text
+SSID: ShadowCarrier-S3
+Password: shadow123456
+Control page: http://192.168.4.1
 ```
 
-After upload, open Serial Monitor and copy the printed IP address into your browser.
+After upload, connect your phone or computer to `ShadowCarrier-S3`, then open `http://192.168.4.1` in a browser.
 
 ## ESP32-C3 Motion Controller Upload
 
@@ -71,7 +72,19 @@ Recommended Arduino IDE settings:
 | Partition Scheme | Default |
 | Serial Monitor | 115200 baud |
 
-The C3 firmware prints received and parsed UART commands. It does not drive motors in v0.2.
+The C3 firmware receives UART commands and drives a TB6612 dual motor driver.
+
+TB6612 wiring:
+
+| TB6612 Pin | ESP32-C3 GPIO |
+|---|---:|
+| STBY | GPIO20 |
+| AIN1 | GPIO4 |
+| AIN2 | GPIO5 |
+| PWMA | GPIO6 |
+| BIN1 | GPIO7 |
+| BIN2 | GPIO8 |
+| PWMB | GPIO9 |
 
 ## UART Test
 
@@ -87,9 +100,10 @@ Then:
 
 1. Upload the C3 firmware and keep its Serial Monitor open at 115200 baud.
 2. Upload the S3 firmware.
-3. Open the S3 IP address in a browser.
-4. Press `Forward`, `Back`, `Left`, `Right`, or `Stop`.
-5. Confirm the C3 Serial Monitor shows commands such as:
+3. Connect to the `ShadowCarrier-S3` WiFi network.
+4. Open `http://192.168.4.1` in a browser.
+5. Press `Forward`, `Back`, `Left`, `Right`, or `Stop`.
+6. Confirm the C3 Serial Monitor shows commands such as:
 
    ```text
    UART <- S3: MOVE F 180
@@ -100,5 +114,5 @@ Then:
 
 - If upload fails, lower upload speed to `115200`.
 - If Serial Monitor output is unreadable, confirm it is set to `115200`.
-- If the S3 web page does not load, confirm WiFi credentials and check the IP printed by Serial Monitor.
-- Do not install camera, AI, motor-control, or BLE libraries for v0.2 unless a later firmware version needs them.
+- If the S3 web page does not load, confirm your device is connected to `ShadowCarrier-S3` and open `http://192.168.4.1`.
+- Do not install camera, AI, or BLE libraries for v0.2 unless a later firmware version needs them.

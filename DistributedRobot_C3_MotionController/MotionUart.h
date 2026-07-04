@@ -2,8 +2,9 @@
 #define MOTION_UART_H
 
 #include "CommandParser.h"
+#include "MotorDriver.h"
 
 void initMotionUART();
-void processIncomingCommands(CommandParser &parser);
+void processIncomingCommands(CommandParser &parser, MotorDriver &motorDriver);
 
 #endif
