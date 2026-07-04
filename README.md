@@ -1,6 +1,3 @@
-Readme · MD
-Copy
-
 # Shadow Carrier 逛街搭子
  
 > *"不知道啥时候来的，我顺手把外套挂上去了。"*
@@ -147,8 +144,40 @@ The framework is worth more than the shopping cart.
 ---
  
 ## Project Status
- 
-🟡 **Concept / Pre-MVP** — Hardware not yet started. Core hypothesis not yet validated.
+
+🟡 **Pre-MVP / v0.2 firmware bring-up**
+
+Current implementation focuses on the low-level distributed robot platform:
+
+- `DistributedRobot_S3_Gateway/`: ESP32-S3 Network Gateway. Connects WiFi, serves a simple HTTP control page, and forwards button actions to UART as ASCII protocol commands.
+- `DistributedRobot_C3_MotionController/`: ESP32-C3 Motion Controller. Receives UART lines, parses the shared protocol, and prints parsed commands to Serial Monitor.
+- Current firmware intentionally does not enable the camera, AI, motor output, or complex behavior logic.
+
+### v0.2 UART Protocol
+
+Commands are ASCII text, one command per line:
+
+```text
+MOVE F 180
+MOVE B 180
+MOVE L 150
+MOVE R 150
+STOP
+PING
+```
+
+### UART Wiring
+
+| Link | TX | RX | Baud |
+|---|---:|---:|---:|
+| ESP32-S3 Gateway | GPIO1 | GPIO2 | 115200 |
+| ESP32-C3 Motion Controller | GPIO11 | GPIO10 | 115200 |
+
+Wire S3 TX GPIO1 to C3 RX GPIO10, S3 RX GPIO2 to C3 TX GPIO11, and connect GND to GND.
+
+### Arduino IDE
+
+See [docs/arduino_ide_setup.md](docs/arduino_ide_setup.md) for board package, board selection, and upload settings.
  
 ---
  

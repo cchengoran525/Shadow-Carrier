@@ -1,0 +1,16 @@
+.DS_Store
+*.tmp
+*.log
+
+# Arduino build outputs and local editor metadata.
+build/
+*.elf
+*.bin
+*.hex
+*.map
+*.uf2
+.vscode/
+
+# Keep WiFi credentials out if a local override file is added later.
+*Secrets.h
+secrets.h
