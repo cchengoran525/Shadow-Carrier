@@ -151,7 +151,21 @@ Current implementation focuses on the low-level distributed robot platform:
 
 - `DistributedRobot_S3_Gateway/`: ESP32-S3 Network Gateway. Starts a local WiFi access point, serves a simple HTTP control page, and forwards button actions to UART as ASCII protocol commands.
 - `DistributedRobot_C3_MotionController/`: ESP32-C3 Motion Controller. Receives UART lines, parses the shared protocol, drives a TB6612 dual motor driver, and stops forward motion when the front ultrasonic sensor detects an obstacle.
-- Current firmware intentionally does not enable the camera, AI, or complex behavior logic.
+- `shadow_carrier_on_rockchip/`: **KickPi (RK3566) vision brain** — replaces the S3 gateway as the decision maker. YOLO NPU detection pipeline, 2-axis servo gimbal that follows the largest person, same UART ASCII protocol to the C3.
+- The C3/S3 firmware stays low-level (no AI); AI and behavior run on the KickPi brain (below).
+
+### v0.3 KickPi Vision Brain (`shadow_carrier_on_rockchip`)
+
+The S3 gateway is being replaced by a **KickPi RK3566** running a real-time vision brain:
+
+| Area | What it does |
+|---|---|
+| **Perception** | USB camera → YOLOv8 (RKNN NPU, 0.8 TOPS) → detection pipeline ~11 FPS, with crash-recovering watchdog and memory-disk frames (no disk I/O) |
+| **Gimbal** | 2-axis servo pan/tilt that follows the largest person in frame (software PWM on GPIO4_A6/A7) |
+| **Communication** | Speaks the unchanged v0.2 UART ASCII protocol (`MOVE F 180` / `STOP` / `PING`) to the C3 — **C3 firmware untouched** |
+| **Roadmap** | Owner identification (BLE RSSI + HSV color + posture fusion), person-following loop, ESP32 serial control |
+
+The full project lives in `shadow_carrier_on_rockchip/` (perception pipeline, gimbal, C3 protocol spec).
 
 ### v0.2 UART Protocol
 
