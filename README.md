@@ -150,7 +150,7 @@ The framework is worth more than the shopping cart.
 Current implementation focuses on the low-level distributed robot platform:
 
 - `DistributedRobot_S3_Gateway/`: ESP32-S3 Network Gateway. Starts a local WiFi access point, serves a simple HTTP control page, and forwards button actions to UART as ASCII protocol commands.
-- `DistributedRobot_C3_MotionController/`: ESP32-C3 Motion Controller. Receives UART lines, parses the shared protocol, and drives a TB6612 dual motor driver.
+- `DistributedRobot_C3_MotionController/`: ESP32-C3 Motion Controller. Receives UART lines, parses the shared protocol, drives a TB6612 dual motor driver, and stops forward motion when the front ultrasonic sensor detects an obstacle.
 - Current firmware intentionally does not enable the camera, AI, or complex behavior logic.
 
 ### v0.2 UART Protocol
@@ -196,6 +196,26 @@ Control page: http://192.168.4.1
 | BIN1 | GPIO7 |
 | BIN2 | GPIO8 |
 | PWMB | GPIO9 |
+
+### C3 Ultrasonic Wiring
+
+Use a 3.3V-safe echo signal for the ESP32-C3 input. If the ultrasonic module outputs 5V on ECHO, add a voltage divider before GPIO3.
+
+| Ultrasonic Pin | ESP32-C3 GPIO |
+|---|---:|
+| TRIG | GPIO2 |
+| ECHO | GPIO3 |
+
+### C3 Safety Behavior
+
+- The S3 web page sends repeated MOVE commands while a direction button is held, and sends STOP when released.
+- The C3 stops if it does not receive a fresh movement command within 450 ms.
+- Forward movement is blocked as soon as the ultrasonic distance is 20 cm or less. The block clears only after 3 valid samples at 25 cm or farther.
+- Motor PWM ramps gradually to reduce startup jerk and wheel slip.
+- TB6612 `STBY` is held LOW while stopped, and is enabled only when non-zero PWM is being applied.
+- Open-loop wheel trim is configured in `DistributedRobot_C3_MotionController/Config.h`.
+
+If a motor spins briefly right after power is connected, add a physical pulldown resistor on TB6612 `STBY` to GND. Firmware pulls STBY low early, but it cannot control pin levels before the ESP32-C3 has booted.
 
 ### Arduino IDE
 

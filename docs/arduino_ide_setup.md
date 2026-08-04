@@ -86,6 +86,30 @@ TB6612 wiring:
 | BIN2 | GPIO8 |
 | PWMB | GPIO9 |
 
+Ultrasonic wiring:
+
+| Ultrasonic Pin | ESP32-C3 GPIO |
+|---|---:|
+| TRIG | GPIO2 |
+| ECHO | GPIO3 |
+
+Use a voltage divider on ECHO if your ultrasonic module outputs 5V.
+
+Open-loop tuning constants live in `DistributedRobot_C3_MotionController/Config.h`:
+
+```cpp
+constexpr uint32_t MOTOR_COMMAND_TIMEOUT_MS = 450;
+constexpr int MOTOR_LEFT_TRIM_PERCENT = 0;
+constexpr int MOTOR_RIGHT_TRIM_PERCENT = 0;
+constexpr int OBSTACLE_STOP_DISTANCE_CM = 20;
+constexpr int OBSTACLE_CLEAR_DISTANCE_CM = 25;
+constexpr uint8_t OBSTACLE_CLEAR_CONFIRM_SAMPLES = 3;
+```
+
+If the robot veers left while driving forward, the left side is slower than the right side. Increase `MOTOR_LEFT_TRIM_PERCENT` or reduce `MOTOR_RIGHT_TRIM_PERCENT`. If it veers right, do the opposite. Start with small values such as `-5`, `0`, or `5`.
+
+Obstacle stop is intentionally conservative: one close reading blocks forward movement, invalid readings do not clear the block, and several valid far readings are required before forward movement is allowed again. Backward and turning commands remain available so you can move the robot away from the obstacle.
+
 ## UART Test
 
 Connect the boards:
@@ -115,4 +139,5 @@ Then:
 - If upload fails, lower upload speed to `115200`.
 - If Serial Monitor output is unreadable, confirm it is set to `115200`.
 - If the S3 web page does not load, confirm your device is connected to `ShadowCarrier-S3` and open `http://192.168.4.1`.
+- If a motor spins briefly as soon as power is connected, add a pulldown resistor from TB6612 `STBY` to GND so the motor driver stays disabled during ESP32-C3 boot.
 - Do not install camera, AI, or BLE libraries for v0.2 unless a later firmware version needs them.
