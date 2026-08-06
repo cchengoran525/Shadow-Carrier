@@ -1,0 +1,10 @@
+# 编译产物
+perception/yolo_daemon
+*.o
+*.out
+
+# 临时/运行时文件
+/dev/shm/
+/tmp/
+*.jpg
+!README.md
