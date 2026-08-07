@@ -12,7 +12,7 @@ import os, sys, time, json, threading, urllib.request
 PAN_GPIO = 134          # GPIO4_A6 (sysfs号)
 TILT_GPIO = 135         # GPIO4_A7
 API_URL = "http://127.0.0.1:8080/api/detections"
-W, H = 1280, 720        # 画面尺寸 (与 video_stream_v7 一致)
+W, H = 640, 480        # 画面尺寸 (与 video_stream_v7 一致)
 
 PAN_CENTER = 90         # 舵机中位角
 TILT_CENTER = 90
@@ -21,7 +21,7 @@ TILT_K = 0.04
 SERVO_MIN, SERVO_MAX = 0, 180
 PULSE_MIN, PULSE_MAX = 0.5, 2.5   # 脉宽 ms (0°=0.5ms, 180°=2.5ms)
 CYCLE_MS = 20.0         # 50Hz
-POLL_S = 0.1            # API轮询间隔
+POLL_S = 0.03           # API轮询间隔
 # ========================================
 
 state = {"pan": PAN_CENTER, "tilt": TILT_CENTER}

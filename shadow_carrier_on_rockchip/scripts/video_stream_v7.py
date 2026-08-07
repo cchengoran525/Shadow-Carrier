@@ -11,14 +11,14 @@ import cv2, subprocess, os, time, threading, json, socketserver
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 CAMERA_ID = 10
-WIDTH, HEIGHT = 1280, 720
+WIDTH, HEIGHT = 640, 480
 YOLO_DAEMON = "/home/kickpi/shadow_carrier_on_rockchip/perception/yolo_daemon"
 MODEL = "/home/kickpi/shopping_car_vision/rknn_model_zoo/examples/yolov8/cpp/build/model/yolov8.rknn"
 YOLO_CWD = "/home/kickpi/shopping_car_vision/rknn_model_zoo/examples/yolov8/cpp/build"
 FRAME_A = "/dev/shm/yolo_frame_a.jpg"
 FRAME_B = "/dev/shm/yolo_frame_b.jpg"
 OUT_IMAGE = "/dev/shm/yolo_out.jpg"
-JPEG_QUALITY = 75
+JPEG_QUALITY = 50
 MAX_INFLIGHT = 2
 HEARTBEAT_TIMEOUT = 5.0
 
@@ -103,6 +103,7 @@ def producer(cam_id):
     cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     if not cap.isOpened():
         print(f"FATAL: cam /dev/video{cam_id}")
         stop_flag = True
@@ -181,7 +182,8 @@ def consumer():
             with stats_lock:
                 stats["read_fail"] += 1
             continue
-        latest_dets = result.get("det", [])
+        with lock:
+            latest_dets = result.get("det", [])
         try:
             with open(OUT_IMAGE, 'rb') as f:
                 jpeg = f.read()
@@ -219,7 +221,7 @@ class Handler(BaseHTTPRequestHandler):
                         self.wfile.write(f'Content-Length: {len(jpeg)}\r\n\r\n'.encode())
                         self.wfile.write(jpeg); self.wfile.write(b'\r\n')
                         last = jpeg
-                    time.sleep(0.02)
+                    time.sleep(0.01)
             except: pass
 
         elif self.path == '/api/detections':
