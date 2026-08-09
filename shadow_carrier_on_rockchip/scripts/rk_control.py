@@ -12,6 +12,7 @@ uart_fd = None
 uart_lock = threading.Lock()
 mode = "manual"
 mode_lock = threading.Lock()
+fc = None
 
 def uart_open(port):
     global uart_fd
@@ -47,6 +48,46 @@ def uart_reader():
         except Exception:
             time.sleep(0.1)
 
+# ====== 跟人控制 (延迟import, 失败不影响主服务) ======
+
+def _follow_loop():
+    global fc
+    try:
+        from follow_controller import FollowController
+        fc = FollowController(uart_send)
+        fc.start()
+        while fc.running:
+            fc.tick()
+            time.sleep(0.4)
+    except Exception as e:
+        print(f"[follow] import/run error: {e}")
+        import traceback; traceback.print_exc()
+    finally:
+        if fc: fc.stop()
+
+def _start_follow():
+    global mode
+    try:
+        if fc is not None and fc.running:
+            fc.resume()
+            return
+        with mode_lock: mode = "follow"
+        threading.Thread(target=_follow_loop, daemon=True).start()
+    except Exception as e:
+        print(f"[follow] start error: {e}")
+
+def _stop_follow():
+    global mode
+    with mode_lock: mode = "manual"
+    try:
+        if fc is not None:
+            fc.stop()
+    except Exception:
+        pass
+    uart_send("STOP")
+
+# ====== HTTP Handler ======
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def do_GET(self):
@@ -71,11 +112,10 @@ class Handler(BaseHTTPRequestHandler):
         if self.path in r:
             self._text("OK" if uart_send(r[self.path]) else "FAIL")
         elif self.path == '/mode/manual':
-            _set_mode("manual")
-            uart_send("STOP")
+            _stop_follow()
             self._json({"mode": "manual"})
         elif self.path == '/mode/follow':
-            _set_mode("follow")
+            _start_follow()
             self._json({"mode": "follow"})
         else: self.send_response(404); self._text('404')
     def _text(self, m):
@@ -93,9 +133,9 @@ body{{background:#0d1117;color:#c9d1d9;font-family:-apple-system,sans-serif;heig
 .video{{flex:1;display:flex;align-items:center;justify-content:center;background:#000;min-height:0}}
 .video img{{max-width:100%;max-height:100%;object-fit:contain}}
 .modebar{{display:flex;padding:12px 12px 0;gap:0}}
-.modebar button{{flex:1;height:40px;border:0;font-size:16px;font-weight:700;color:#fff;cursor:pointer;transition:background .2s}}
-.modebar button:first-child{{border-radius:10px 0 0 10px}}
-.modebar button:last-child{{border-radius:0 10px 10px 0}}
+.modebar button{{flex:1;height:44px;border:0;font-size:17px;font-weight:700;color:#fff;cursor:pointer}}
+.modebar button:first-child{{border-radius:12px 0 0 12px}}
+.modebar button:last-child{{border-radius:0 12px 12px 0}}
 .modebar button.active{{background:#238636}}
 .modebar button.inactive{{background:#21262d;color:#8b949e}}
 .ctrl{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:12px;background:#161b22}}
@@ -135,10 +175,16 @@ fetch('/mode/'+m,{{method:'POST'}}).then(r=>r.json()).then(d=>{{
  let btns=document.querySelectorAll('.ctrl button');
  btns.forEach(b=>{{if(b.dataset.cmd!=='stop')b.disabled=curMode!=='manual';}});
  if(curMode!=='manual')r();
-}})}}
+}}).catch(e=>console.log(e));}}
 document.querySelectorAll('.ctrl button').forEach(b=>{{
  b.addEventListener('contextmenu',e=>e.preventDefault());
- if(b.dataset.cmd==='stop'){{b.addEventListener('pointerdown',e=>{{e.preventDefault();r()}});return}}
+ if(b.dataset.cmd==='stop'){{
+  b.addEventListener('pointerdown',e=>{{
+   e.preventDefault();
+   if(curMode==='follow'){{setMode('manual');return;}}
+   r();
+  }});return;
+ }}
  b.addEventListener('pointerdown',e=>{{e.preventDefault();b.setPointerCapture(e.pointerId);h(b.dataset.cmd,b.textContent.trim())}});
  b.addEventListener('pointerup',r);b.addEventListener('pointercancel',r);b.addEventListener('lostpointercapture',r);
 }});
@@ -153,13 +199,6 @@ class TServer(socketserver.ThreadingMixIn, HTTPServer):
 def _get_mode():
     with mode_lock: return mode
 
-def _set_mode(m):
-    global mode
-    with mode_lock: mode = m
-    print(f"[mode] -> {m}")
-    if m == "follow":
-        uart_send("STOP")
-
 def main():
     global UART
     import argparse
@@ -170,8 +209,7 @@ def main():
     UART = args.uart
     print(f"ShadowCarrier-RK v4 | HTTP :{args.port} | USB->C3 {UART}")
     ok = uart_open(UART)
-    if ok:
-        time.sleep(0.5)
+    if ok: time.sleep(0.5)
     print("OK" if ok else "UART FAIL (will retry on udev)")
     threading.Thread(target=uart_reader, daemon=True).start()
     httpd = TServer(('0.0.0.0', args.port), Handler)
