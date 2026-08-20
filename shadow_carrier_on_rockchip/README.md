@@ -12,8 +12,10 @@ shadow_carrier_on_rockchip/
 │   ├── rk_control.py          # HTTP 遥控面板 (80, USB→C3)
 │   ├── video_stream_v7.py     # MJPEG 推流+检测 (8080)
 │   └── video_stream.py / video_stream_fast.py (旧版参考)
-├── communication/    # C3 USB 固件 + 协议 + 踩坑记录
-│   ├── C3_USB_Controller.ino  # C3 USB 接收固件
+├── C3_USB_Controller/ # 当前 RK3566 USB CDC 用 C3 固件
+│   ├── C3_USB_Controller.ino
+│   └── 协议/电机/超声波依赖文件
+├── communication/    # USB 通信说明与历史通信记录
 │   └── README.md
 ├── decision/         # 视觉跟随 + 蓝牙锁主 设计文档
 ├── gimbal/           # 两轴舵机云台 (追最大person)
@@ -22,10 +24,10 @@ shadow_carrier_on_rockchip/
 ├── config/           # settings.yaml
 └── models/           # (空, 模型路径引用)
 
-## 通信: USB 直连 (最终方案)
+## 通信: RK3566 USB 直连 (当前方案)
 
-C3 USB-C → KickPi USB-A，CDC ACM 虚拟串口 `/dev/ttyACM0`。即供电又通信。
-by-id 永久路径、udev 插拔自动重启。无需 CH340/WiFi/板载UART。
+C3 USB-C → KickPi USB-A，使用 CDC ACM 虚拟串口，通常为 `/dev/ttyACM0`。USB 同时提供供电和通信。
+当前不使用 RK3566 板载 UART 或 30-pin 排针 GPIO，因为该开发板的串口/引脚连接不便于和 ESP32-C3 建立稳定物理链路。也不需要 CH340、CP2102、WiFi 或额外 UART 转换器。
 踩坑顺序: RK UART无TX → CH340 OHCI崩溃 → CP2102崩溃 → AP6255 ESP32不兼容 → USB直连✅
 
 ### ⚠️ 编译必加 CDCOnBoot=cdc
@@ -33,18 +35,34 @@ by-id 永久路径、udev 插拔自动重启。无需 CH340/WiFi/板载UART。
 ESP32-C3 的 `Serial` 默认走硬件 UART0，必须显式开 USB CDC：
 
 ```bash
-arduino-cli compile --fqbn "esp32:esp32:esp32c3:CDCOnBoot=cdc" ...
+arduino-cli compile --fqbn "esp32:esp32:esp32c3:CDCOnBoot=cdc" shadow_carrier_on_rockchip/C3_USB_Controller
 ```
 
-不加 → C3 完全沉默，KickPi 写 UART 死锁。
+不加 → C3 不会通过 USB CDC 出现预期的通信串口，KickPi 无法正常通过 USB 发送命令。
+
+当前应编译 `C3_USB_Controller/`。`communication/` 中的同名 `.ino` 和依赖文件是早期重复工程，不是 RK 路径的主 C3 工程。
 
 ## 开机自启
 
 | 服务 | 端口 | 功能 |
 |------|------|------|
 | ap-hotspot | WiFi | `ShadowCarrier-RK` / `shadow123456`, NM已排除wlan0 |
-| rk-control | 80 | 网页遥控 + USB→C3, by-id路径, udev自动恢复 |
+| rk-control | 80 | 网页遥控 + USB CDC→C3 |
 | video-stream | 8080 | YOLO检测 + MJPEG推流 |
+
+## 当前已知小问题与边界
+
+以下内容是当前版本的已知限制，记录用于排查和后续收敛，不代表已经修复：
+
+1. **C3 工程存在两份副本。** 当前 RK3566 USB 路径应使用 `C3_USB_Controller/`；`communication/` 是早期重复工程，不支持最新的 `DIFF` 差速命令，且目录名与 `.ino` 主文件名不一致，不能直接按 Arduino CLI 的目录规则编译。
+2. **USB 串口恢复还不完整。** `rk_control.py` 默认打开 `/dev/ttyACM0`，虽然支持 `--uart` 参数，但当前进程启动时只尝试打开一次；设备后续拔插不会自动重新建立连接。
+3. **串口健康检查还不完整。** RK 后台线程会排空 C3 的 USB CDC 输出，避免 CDC 缓冲区堵塞，但会丢弃 `PONG` 等诊断内容。`/ping` 目前只能说明文件描述符存在，不能证明命令已经得到 C3 响应。
+4. **视觉管线依赖 RK 本机资产。** `video_stream_v7.py` 使用 RK 上的绝对路径启动 `yolo_daemon` 和 `.rknn` 模型；仓库本身不包含编译产物和模型，换一块 RK 板不能直接运行。
+5. **原生 C++ 感知模块仍是占位实现。** `perception/camera.cpp` 和 `perception/yolov8.cpp` 的 V4L2/NPU 接口仍保留 TODO；当前实际运行的是 Python 推流脚本加外部 YOLO daemon。
+6. **配置文件与实际运行入口尚未统一。** `config/settings.yaml` 仍保留 `/dev/ttyUSB0` 和 `binary` 协议字段，但当前 `rk_control.py` 使用 `/dev/ttyACM0` 和 ASCII 文本命令，而且没有读取这份 YAML。
+7. **跟随控制目前主要使用横向位置。** `TARGET_BBOX_H`、`DIST_DEADBAND`、`MIN_BBOX_H`、`FWD_SPD` 等参数在当前控制循环中没有形成完整的距离控制闭环；控制周期和注释中的研究参数也仍在迭代。
+8. **超声波保护有强制解除路径。** 无回波累计或障碍锁定超过最大时长后，传感器状态会被强制清除，目的是防止永久锁死，但这不等于确认前方安全。测试时仍应保留人工 STOP 入口，并让车轮离地。
+9. **部署地址和引脚说明仍有局部不一致。** RK 控制页面里存在固定视频地址，云台脚本的注释与实际 GPIO4_A6/A7 配置也需要以当前 RK 板卡接线为准。
 
 ## 已知问题
 

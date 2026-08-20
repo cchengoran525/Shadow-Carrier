@@ -149,10 +149,10 @@ The framework is worth more than the shopping cart.
 
 Current implementation focuses on the low-level distributed robot platform:
 
-- `DistributedRobot_S3_Gateway/`: ESP32-S3 Network Gateway. Starts a local WiFi access point, serves a simple HTTP control page, and forwards button actions to UART as ASCII protocol commands.
-- `DistributedRobot_C3_MotionController/`: ESP32-C3 Motion Controller. Receives UART lines, parses the shared protocol, drives a TB6612 dual motor driver, and stops forward motion when the front ultrasonic sensor detects an obstacle.
-- `shadow_carrier_on_rockchip/`: **KickPi (RK3566) vision brain** — replaces the S3 gateway as the decision maker. YOLO NPU detection pipeline, 2-axis servo gimbal that follows the largest person, same UART ASCII protocol to the C3.
-- The C3/S3 firmware stays low-level (no AI); AI and behavior run on the KickPi brain (below).
+- `DistributedRobot_S3_Gateway/`: ESP32-S3 Network Gateway for the original WiFi-to-UART control path.
+- `DistributedRobot_C3_MotionController/`: ESP32-C3 Motion Controller for the original GPIO UART path. It parses the shared ASCII command format, drives the TB6612 dual motor driver, and stops forward motion when the front ultrasonic sensor detects an obstacle.
+- `shadow_carrier_on_rockchip/`: **KickPi (RK3566) vision brain** — the current decision maker. It uses the RK3566 USB port and USB CDC to communicate with a dedicated C3 USB firmware, avoiding the RK board header UART/GPIO connection.
+- The C3 firmware stays low-level (no AI); AI and behavior run on the KickPi brain (below).
 
 ### v0.3 KickPi Vision Brain (`shadow_carrier_on_rockchip`)
 
@@ -162,14 +162,25 @@ The S3 gateway is being replaced by a **KickPi RK3566** running a real-time visi
 |---|---|
 | **Perception** | USB camera → YOLOv8 (RKNN NPU, 0.8 TOPS) → detection pipeline ~11 FPS, with crash-recovering watchdog and memory-disk frames (no disk I/O) |
 | **Gimbal** | 2-axis servo pan/tilt that follows the largest person in frame (software PWM on GPIO4_A6/A7) |
-| **Communication** | Speaks the unchanged v0.2 UART ASCII protocol (`MOVE F 180` / `STOP` / `PING`) to the C3 — **C3 firmware untouched** |
+| **Communication** | Sends the shared ASCII motion commands over USB CDC (`MOVE F 180` / `STOP` / `PING`) to the C3 USB firmware |
 | **Roadmap** | Owner identification (BLE RSSI + HSV color + posture fusion), person-following loop, ESP32 serial control |
 
 The full project lives in `shadow_carrier_on_rockchip/` (perception pipeline, gimbal, C3 protocol spec).
 
-### v0.2 UART Protocol
+### Current Engineering Notes
 
-Commands are ASCII text, one command per line:
+The RK3566 path is currently a working demo pipeline, not yet a self-contained production deployment. The known boundaries are recorded in detail in [`shadow_carrier_on_rockchip/README.md`](shadow_carrier_on_rockchip/README.md), including:
+
+- The RK path uses USB CDC to the dedicated `C3_USB_Controller` sketch. The old `communication/` sketch is a duplicate legacy copy and does not include the latest `DIFF` command.
+- RK serial reconnect and `PING/PONG` health verification are not complete. The current control service reports whether the device opened, but does not expose a confirmed protocol handshake.
+- The vision service depends on an externally built YOLO daemon and model paths on the RK board; the native C++ camera and YOLO wrappers remain TODO placeholders.
+- Follow mode currently uses image horizontal position for steering. Several distance/PID settings are reserved but are not yet connected to the active controller.
+- Ultrasonic obstacle protection contains timeout-based force-clear paths to avoid permanent lockout. These paths are not equivalent to confirming that the path is clear.
+- The RK control page and gimbal scripts still contain a few deployment-specific IP/GPIO references that must be verified against the actual board image and wiring.
+
+### Shared ASCII Motion Protocol
+
+The command format is transport-independent: ASCII text, one command per line. The original S3 path transports it over GPIO UART; the current RK3566 path transports it over USB CDC.
 
 ```text
 MOVE F 180
@@ -180,7 +191,7 @@ STOP
 PING
 ```
 
-### UART Wiring
+### Legacy S3-C3 UART Wiring
 
 | Link | TX | RX | Baud |
 |---|---:|---:|---:|
@@ -188,6 +199,18 @@ PING
 | ESP32-C3 Motion Controller | GPIO11 | GPIO10 | 115200 |
 
 Wire S3 TX GPIO1 to C3 RX GPIO10, S3 RX GPIO2 to C3 TX GPIO11, and connect GND to GND.
+
+This wiring applies only to the original ESP32-S3 Gateway path. The current RK3566 path does not use the RK board header UART or GPIO pins because those pins are not convenient for the physical RK-C3 connection.
+
+### Current RK3566-C3 USB Connection
+
+Connect the KickPi/RK3566 USB host port directly to the ESP32-C3 USB port:
+
+```text
+RK3566 USB-A  ->  ESP32-C3 USB-C
+```
+
+The C3 appears on RK Linux as a USB CDC device, normally `/dev/ttyACM0`. This path is USB communication and USB power; it is not the old GPIO UART wiring. Compile the USB firmware with `CDCOnBoot=cdc` and use `shadow_carrier_on_rockchip/C3_USB_Controller/` as the C3 sketch.
 
 ### S3 Control WiFi
 

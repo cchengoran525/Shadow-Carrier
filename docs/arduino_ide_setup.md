@@ -72,7 +72,7 @@ Recommended Arduino IDE settings:
 | Partition Scheme | Default |
 | Serial Monitor | 115200 baud |
 
-The C3 firmware receives UART commands and drives a TB6612 dual motor driver.
+This sketch is the original GPIO UART C3 firmware. It receives commands from the ESP32-S3 on GPIO10/GPIO11 and drives a TB6612 dual motor driver.
 
 TB6612 wiring:
 
@@ -110,7 +110,7 @@ If the robot veers left while driving forward, the left side is slower than the 
 
 Obstacle stop is intentionally conservative: one close reading blocks forward movement, invalid readings do not clear the block, and several valid far readings are required before forward movement is allowed again. Backward and turning commands remain available so you can move the robot away from the obstacle.
 
-## UART Test
+## Legacy S3-C3 UART Test
 
 Connect the boards:
 
@@ -133,6 +133,28 @@ Then:
    UART <- S3: MOVE F 180
    Parsed command: MOVE F speed=180
    ```
+
+## RK3566-C3 USB Firmware
+
+The current RK3566/KickPi path does not use the RK board header UART or GPIO pins. The RK board connects to the C3 directly through USB:
+
+```text
+RK3566 USB-A  ->  ESP32-C3 USB-C
+```
+
+For this path, open this separate sketch:
+
+```text
+shadow_carrier_on_rockchip/C3_USB_Controller/C3_USB_Controller.ino
+```
+
+Use `ESP32C3 Dev Module` with `USB CDC On Boot` enabled. With Arduino CLI, the board option is:
+
+```text
+esp32:esp32:esp32c3:CDCOnBoot=cdc
+```
+
+The C3 then receives the same ASCII motion commands through USB CDC. On RK Linux it normally appears as `/dev/ttyACM0`. Do not use the GPIO10/GPIO11 UART wiring for this USB path.
 
 ## Common Notes
 
