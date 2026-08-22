@@ -151,8 +151,29 @@ Current implementation focuses on the low-level distributed robot platform:
 
 - `DistributedRobot_S3_Gateway/`: ESP32-S3 Network Gateway for the original WiFi-to-UART control path.
 - `DistributedRobot_C3_MotionController/`: ESP32-C3 Motion Controller for the original GPIO UART path. It parses the shared ASCII command format, drives the TB6612 dual motor driver, and stops forward motion when the front ultrasonic sensor detects an obstacle.
-- `shadow_carrier_on_rockchip/`: **KickPi (RK3566) vision brain** — the current decision maker. It uses the RK3566 USB port and USB CDC to communicate with a dedicated C3 USB firmware, avoiding the RK board header UART/GPIO connection.
-- The C3 firmware stays low-level (no AI); AI and behavior run on the KickPi brain (below).
+- `shadow_carrier_on_rockchip/`: **KickPi (RK3566) vision brain** — the current decision maker. YOLO NPU detection pipeline, 2-axis servo gimbal driven by the C3, and an extended ASCII protocol (`MOVE`/`STOP`/`DIFF`/`PING`/`PAN`/`TLT`) over USB CDC to a dedicated C3 USB firmware.
+- The C3/S3 firmware stays low-level (no AI); AI and behavior run on the KickPi brain (below).
+
+### v0.5 C3 Direct-Drive Gimbal (`shadow_carrier_on_rockchip`)
+
+The 2-axis camera gimbal is driven by the **ESP32-C3's hardware PWM** (LEDC 50Hz @14bit) instead of
+RK3566 GPIO software PWM — RK3566's header has no free pins for servos (measured: GPIO4_A6/A7 are
+not routed to the 30-pin header; all other free pins are claimed by UART7/UART9/I2C/I2S/PDM).
+
+| Area | What it does |
+|---|---|
+| **Firmware** | `shadow_carrier_on_rockchip/C3_USB_Controller/` — adds `PAN <deg>` / `TLT <deg>` commands with range clamping, direction/pulse-width calibration constants, power-on centering |
+| **Servo power** | Independent 5V from drive battery via buck module, common ground with C3 (never power servos from the board) |
+| **Web control** | Drag pad on the control page: horizontal = pan, vertical = tilt, continuous 10Hz absolute-angle stream; ◎ re-centers |
+| **Auto follow** | `gimbal/gimbal_follow.py` v2 — P-control on the largest person, sends angles over the same USB serial link |
+
+See `shadow_carrier_on_rockchip/gimbal/README.md` for the full wiring/pinout investigation and calibration guide.
+
+### v0.4 USB Direct Link
+
+The S3→C3 UART hop was replaced by **USB CDC ACM direct** (KickPi USB-A → C3 USB-C): zero extra
+hardware, `/dev/ttyACM0`, udev alias `c3_controller`. Five alternatives failed first — see
+`shadow_carrier_on_rockchip/communication/README.md` for the post-mortem.
 
 ### v0.3 KickPi Vision Brain (`shadow_carrier_on_rockchip`)
 
@@ -161,8 +182,8 @@ The S3 gateway is being replaced by a **KickPi RK3566** running a real-time visi
 | Area | What it does |
 |---|---|
 | **Perception** | USB camera → YOLOv8 (RKNN NPU, 0.8 TOPS) → detection pipeline ~11 FPS, with crash-recovering watchdog and memory-disk frames (no disk I/O) |
-| **Gimbal** | 2-axis servo pan/tilt that follows the largest person in frame (software PWM on GPIO4_A6/A7) |
-| **Communication** | Sends the shared ASCII motion commands over USB CDC (`MOVE F 180` / `STOP` / `PING`) to the C3 USB firmware |
+| **Gimbal** | 2-axis servo pan/tilt — now driven by the C3 over USB (see v0.5 below); RK3566 header pins proved unusable for servos |
+| **Communication** | Sends ASCII motion commands (`MOVE F 180` / `STOP` / `PING`) to the C3 USB firmware over USB CDC |
 | **Roadmap** | Owner identification (BLE RSSI + HSV color + posture fusion), person-following loop, ESP32 serial control |
 
 The full project lives in `shadow_carrier_on_rockchip/` (perception pipeline, gimbal, C3 protocol spec).

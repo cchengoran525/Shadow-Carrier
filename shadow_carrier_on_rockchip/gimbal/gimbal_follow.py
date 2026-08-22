@@ -1,65 +1,77 @@
 #!/usr/bin/env python3
-"""gimbal_follow.py - 云台追随最大person
-两自由度舵机(Pan/Tilt)自动追随画面中面积最大的person。
-独立于 video_stream_v7 运行, 只读它的 HTTP API, 不影响主视频管线。
+"""gimbal_follow.py v2 - 云台追随最大person (C3串口直驱版)
 
-接线见 gimbal/README.md (Pan→GPIO4_A4, Tilt→GPIO4_A5, VCC→5V, GND→GND)
-需要 sudo 运行 (GPIO sysfs 权限):  sudo python3 gimbal_follow.py
+两自由度舵机(Pan/Tilt)自动追随画面中面积最大的person。
+舵机由 ESP32-C3 的 LEDC 硬件PWM驱动, 本脚本只发角度命令, 不再碰GPIO。
+
+接线见 gimbal/README.md:
+  Pan(水平270°) 橙线 -> C3 GPIO0   Tilt(俯仰180°) 橙线 -> C3 GPIO1
+  舵机红棕线 -> 独立5V电源, 与C3共地
+
+用法: python3 gimbal_follow.py [--port 8080] [--uart /dev/c3_controller]
+权限: 需要读写串口 (sudo 或把用户加入 dialout 组)
 """
-import os, sys, time, json, threading, urllib.request
+import argparse
+import json
+import os
+import termios
+import threading
+import time
+import urllib.request
 
 # ================= 配置 =================
-PAN_GPIO = 134          # GPIO4_A6 (sysfs号)
-TILT_GPIO = 135         # GPIO4_A7
 API_URL = "http://127.0.0.1:8080/api/detections"
-W, H = 640, 480        # 画面尺寸 (与 video_stream_v7 一致)
+UART_PATH = "/dev/c3_controller"
+UART_BAUD = 115200
 
-PAN_CENTER = 90         # 舵机中位角
-TILT_CENTER = 90
-PAN_K = 0.05            # P控制增益: 像素偏差 -> 角度
+W, H = 640, 480          # 画面尺寸 (与 video_stream_v7 一致)
+
+PAN_CENTER = 90.0        # 上电中位角 (Pan 实测为 180° 舵机)
+TILT_CENTER = 90.0
+PAN_RANGE = 180.0        # 行程限幅
+TILT_RANGE = 180.0
+PAN_K = 0.05             # P控制增益: 像素偏差 -> 角度
 TILT_K = 0.04
-SERVO_MIN, SERVO_MAX = 0, 180
-PULSE_MIN, PULSE_MAX = 0.5, 2.5   # 脉宽 ms (0°=0.5ms, 180°=2.5ms)
-CYCLE_MS = 20.0         # 50Hz
-POLL_S = 0.03           # API轮询间隔
+SEND_HZ = 20             # 命令发送频率
+POLL_S = 0.03            # API轮询间隔
 # ========================================
 
-state = {"pan": PAN_CENTER, "tilt": TILT_CENTER}
-lock = threading.Lock()
+
+class C3Link:
+    """极简串口: termios 直用, 不依赖 pyserial (与 rk_control.py 同风格)"""
+
+    def __init__(self, path, baud):
+        self.fd = os.open(path, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+        attrs = termios.tcgetattr(self.fd)
+        speed = getattr(termios, f"B{baud}")
+        attrs[0] = termios.IGNBRK          # iflag
+        attrs[1] = 0                       # oflag
+        attrs[2] = termios.CS8 | termios.CLOCAL | termios.CREAD  # cflag
+        attrs[3] = 0                       # lflag: 非规范模式, 收发即达
+        attrs[4] = speed                   # ispeed
+        attrs[5] = speed                   # ospeed
+        termios.tcsetattr(self.fd, termios.TCSANOW, attrs)
+
+    def send(self, line):
+        try:
+            os.write(self.fd, (line + "\n").encode())
+        except OSError as e:
+            print(f"串口写入失败: {e}", file=__import__("sys").stderr)
+
+    def drain(self):
+        """丢弃C3的回显(GOT:/PAN:/TLT:), 防止缓冲堆积"""
+        try:
+            while os.read(self.fd, 256):
+                pass
+        except BlockingIOError:
+            pass
+
+    def close(self):
+        os.close(self.fd)
 
 
-def clamp(v, lo=SERVO_MIN, hi=SERVO_MAX):
+def clamp(v, lo, hi):
     return max(lo, min(hi, v))
-
-
-def busy_sleep(ms):
-    """忙等, 精度~0.1ms (软件PWM核心)"""
-    t0 = time.monotonic()
-    while time.monotonic() - t0 < ms / 1000.0:
-        pass
-
-
-def pulse_ms(angle):
-    return PULSE_MIN + (angle / SERVO_MAX) * (PULSE_MAX - PULSE_MIN)
-
-
-def pwm_thread(pan_fd, tilt_fd):
-    """持续50Hz输出当前角度到两个舵机, 舵机保持位置"""
-    while True:
-        with lock:
-            pa, ta = state["pan"], state["tilt"]
-        pp = pulse_ms(pa)
-        tp = pulse_ms(ta)
-        # Pan 脉冲
-        os.write(pan_fd, b'1')
-        busy_sleep(pp)
-        os.write(pan_fd, b'0')
-        # Tilt 脉冲
-        os.write(tilt_fd, b'1')
-        busy_sleep(tp)
-        os.write(tilt_fd, b'0')
-        # 周期剩余
-        busy_sleep(max(CYCLE_MS - pp - tp, 0.5))
 
 
 def fetch_biggest_person():
@@ -79,58 +91,49 @@ def fetch_biggest_person():
     return best
 
 
-def control_thread():
-    """每100ms从API取人物, P控制更新pan/tilt目标角度"""
-    while True:
-        person = fetch_biggest_person()
-        if person is not None:
-            cx = (person["x1"] + person["x2"]) / 2
-            cy = (person["y1"] + person["y2"]) / 2
-            dx = cx - W / 2
-            dy = cy - H / 2
-            with lock:
-                state["pan"] = clamp(state["pan"] + dx * PAN_K)
-                state["tilt"] = clamp(state["tilt"] + dy * TILT_K)
-        time.sleep(POLL_S)
-
-
-def gpio_init(gpio):
-    """确保GPIO已导出且为输出, 返回value fd"""
-    vpath = f"/sys/class/gpio/gpio{gpio}/value"
-    if not os.path.exists(vpath):
-        with open("/sys/class/gpio/export", "w") as f:
-            f.write(str(gpio))
-        time.sleep(0.1)
-    with open(f"/sys/class/gpio/gpio{gpio}/direction", "w") as f:
-        f.write("out")
-    return os.open(vpath, os.O_WRONLY)
-
-
 def main():
-    print("gimbal_follow: 云台追随最大person")
-    print(f"  Pan=GPIO{PAN_GPIO}(GPIO4_A6)  Tilt=GPIO{TILT_GPIO}(GPIO4_A7)")
-    print(f"  依赖: {API_URL} (video_stream_v7)")
-    if not os.path.exists(f"/sys/class/gpio/gpio{PAN_GPIO}"):
-        print("警告: Pan GPIO 未导出, 尝试导出...", file=sys.stderr)
-    try:
-        pan_fd = gpio_init(PAN_GPIO)
-        tilt_fd = gpio_init(TILT_GPIO)
-    except Exception as e:
-        print(f"GPIO初始化失败: {e}", file=sys.stderr)
-        print("请用 sudo 运行: sudo python3 gimbal_follow.py", file=sys.stderr)
-        sys.exit(1)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--url", default=API_URL)
+    ap.add_argument("--uart", default=UART_PATH)
+    args = ap.parse_args()
 
-    threading.Thread(target=pwm_thread, args=(pan_fd, tilt_fd), daemon=True).start()
-    threading.Thread(target=control_thread, daemon=True).start()
+    print("gimbal_follow v2: 云台追随最大person (C3硬件PWM)")
+    print(f"  串口: {args.uart} @ {UART_BAUD}")
+    print(f"  依赖: {args.url} (video_stream_v7)")
+
+    link = C3Link(args.uart, UART_BAUD)
+
+    # 上电回中位, 连发几次确保收到
+    pan, tilt = PAN_CENTER, TILT_CENTER
+    for _ in range(3):
+        link.send(f"PAN {pan:.1f}")
+        link.send(f"TLT {tilt:.1f}")
+        time.sleep(0.05)
+    print(f"已回中位: PAN={pan} TILT={tilt}")
+
+    interval = 1.0 / SEND_HZ
+    last_send = 0.0
     print("运行中... Ctrl+C 退出")
     try:
         while True:
-            time.sleep(1)
+            person = fetch_biggest_person()
+            now = time.monotonic()
+            if person is not None and now - last_send >= interval:
+                cx = (person["x1"] + person["x2"]) / 2
+                cy = (person["y1"] + person["y2"]) / 2
+                dx = cx - W / 2
+                dy = cy - H / 2
+                pan = clamp(pan + dx * PAN_K, 0.0, PAN_RANGE)
+                tilt = clamp(tilt + dy * TILT_K, 0.0, TILT_RANGE)
+                link.send(f"PAN {pan:.1f}")
+                link.send(f"TLT {tilt:.1f}")
+                last_send = now
+            link.drain()
+            time.sleep(POLL_S)
     except KeyboardInterrupt:
         print("\n退出")
     finally:
-        os.close(pan_fd)
-        os.close(tilt_fd)
+        link.close()
 
 
 if __name__ == "__main__":

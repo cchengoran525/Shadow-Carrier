@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""rk_control.py v4 - USB直连C3 + 遥控/跟随模式切换"""
+"""rk_control.py v5 - USB直连C3 + 遥控/跟随模式切换 + 云台遥控"""
 import os, termios, time, threading, json, socketserver
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -7,6 +7,12 @@ UART = "/dev/ttyACM0"
 BAUD = 115200
 VIDEO_PORT = 8080
 CONTROL_PORT = 80
+
+# 云台行程 (与 C3 固件一致, Pan 实测为 180° 舵机)
+PAN_RANGE = 180.0
+TILT_RANGE = 180.0
+PAN_CENTER = 90.0
+TILT_CENTER = 90.0
 
 uart_fd = None
 uart_lock = threading.Lock()
@@ -37,6 +43,22 @@ def uart_send(cmd):
     with uart_lock:
         try: os.write(uart_fd, f"{cmd}\r\n".encode()); return True
         except: return False
+
+def gimbal_send(body):
+    """body: {"pan":deg} 和/或 {"tilt":deg}, 绝对角度"""
+    cmds = []
+    if 'pan' in body:
+        p = max(0.0, min(PAN_RANGE, float(body['pan'])))
+        cmds.append(f"PAN {p:.1f}")
+    if 'tilt' in body:
+        t = max(0.0, min(TILT_RANGE, float(body['tilt'])))
+        cmds.append(f"TLT {t:.1f}")
+    if not cmds:
+        return False
+    ok = True
+    for c in cmds:
+        ok = uart_send(c) and ok
+    return ok
 
 def uart_reader():
     global uart_fd
@@ -108,6 +130,19 @@ class Handler(BaseHTTPRequestHandler):
             except Exception: pass
             self.send_response(400); self._text('BAD')
             return
+        if self.path == '/gimbal':
+            try:
+                cl = int(self.headers.get('Content-Length', 0))
+                body = json.loads(self.rfile.read(cl)) if cl else {}
+                if gimbal_send(body):
+                    self._text("OK"); return
+            except Exception: pass
+            self.send_response(400); self._text('BAD')
+            return
+        if self.path == '/gimbal/center':
+            ok = gimbal_send({"pan": PAN_CENTER, "tilt": TILT_CENTER})
+            self._text("OK" if ok else "FAIL")
+            return
         r = {'/forward':'MOVE F 180','/back':'MOVE B 180','/left':'MOVE L 150','/right':'MOVE R 150','/stop':'STOP'}
         if self.path in r:
             self._text("OK" if uart_send(r[self.path]) else "FAIL")
@@ -139,12 +174,18 @@ body{{background:#0d1117;color:#c9d1d9;font-family:-apple-system,sans-serif;heig
 .modebar button.active{{background:#238636}}
 .modebar button.inactive{{background:#21262d;color:#8b949e}}
 .ctrl{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:12px;background:#161b22}}
+.gimbal{{display:flex;gap:10px;padding:0 12px 12px;background:#161b22;align-items:center}}
+.pad{{flex:1;height:96px;background:#21262d;border:1px solid #30363d;border-radius:12px;position:relative;touch-action:none;overflow:hidden}}
+.knob{{position:absolute;left:50%;top:50%;width:26px;height:26px;margin:-13px 0 0 -13px;background:#238636;border-radius:50%;pointer-events:none;opacity:.9;transition:transform .08s}}
+.padhint{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#6e7681;font-size:13px;pointer-events:none}}
+.gbtn{{height:96px;width:76px;font-size:15px;background:#30363d;line-height:1.3}}
 button{{border:0;border-radius:10px;font-size:20px;font-weight:700;height:64px;touch-action:none;user-select:none;color:#fff}}
 button:active{{transform:scale(.96);filter:brightness(.85)}}
 .fwd{{background:#238636;grid-column:2}}.bck{{background:#1f6feb;grid-column:2}}
 .left{{background:#d29922;grid-column:1;grid-row:2}}
 .stop{{background:#da3633;grid-column:2;grid-row:2;font-size:28px}}
 .right{{background:#d29922;grid-column:3;grid-row:2}}
+.gbtn{{height:48px;font-size:18px;background:#30363d}}
 button:disabled{{opacity:.3}}
 .status{{padding:8px 12px;background:#0d1117;color:#8b949e;font-size:13px;text-align:center}}
 </style></head><body>
@@ -159,12 +200,37 @@ button:disabled{{opacity:.3}}
 <button class="stop" data-cmd="stop">■</button>
 <button class="right" data-cmd="right">▶</button>
 <button class="bck" data-cmd="back">▼</button>
+</div>
+<div class="gimbal">
+<div class="pad" id="gpad"><div class="knob" id="gknob"></div><span class="padhint">拖动云台</span></div>
+<button class="gbtn" id="gcenter">◎<br>回中</button>
 </div><div class="status" id="s">USB直连 C3 | 遥控模式</div>
 <script>
 let curMode='manual',t=null,a=null;
 function s(c,l){{fetch('/'+c,{{method:'POST'}}).then(r=>r.text()).then(x=>{{document.getElementById('s').textContent=l+': '+x}}).catch(e=>document.getElementById('s').textContent='ERR')}}
 function h(c,l){{if(curMode!=='manual')return;if(t)clearInterval(t);a=c;s(c,l);t=setInterval(()=>s(c,l),150)}}
 function r(){{if(t){{clearInterval(t);t=null}}if(a){{s('stop','STOP');a=null}}}}
+let gt=null,gpos={{pan:{PAN_CENTER},tilt:{TILT_CENTER}}};
+function g(d){{
+if(curMode!=='manual')return;
+if(d==='center'){{gpos={{pan:{PAN_CENTER},tilt:{TILT_CENTER}}};}}
+else{{
+ gpos.pan=Math.max(0,Math.min({PAN_RANGE},gpos.pan+(d.pan||0)));
+ gpos.tilt=Math.max(0,Math.min({TILT_RANGE},gpos.tilt+(d.tilt||0)));
+}}
+fetch('/gimbal',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(gpos)}})
+.then(r=>r.text()).then(x=>{{document.getElementById('s').textContent='PAN '+gpos.pan.toFixed(0)+' | TILT '+gpos.tilt.toFixed(0)+' | '+x}})
+.catch(e=>document.getElementById('s').textContent='ERR');
+}}
+const pad=document.getElementById('gpad'),knob=document.getElementById('gknob');
+let dragging=false,ox=0,oy=0,kx=0,ky=0;
+setInterval(()=>{{if(dragging&&curMode==='manual')g({{pan:kx*0.12,tilt:ky*0.12}})}},100);
+document.getElementById('gcenter').addEventListener('pointerdown',e=>{{e.preventDefault();g('center')}});
+pad.addEventListener('pointerdown',e=>{{e.preventDefault();if(curMode!=='manual')return;dragging=true;ox=e.clientX-kx;oy=e.clientY-ky;pad.setPointerCapture(e.pointerId)}});
+pad.addEventListener('pointermove',e=>{{if(!dragging)return;kx=Math.max(-40,Math.min(40,e.clientX-ox));ky=Math.max(-40,Math.min(40,e.clientY-oy));knob.style.transform='translate('+kx+'px,'+ky+'px)'}});
+function endDrag(){{dragging=false;kx=0;ky=0;knob.style.transform='translate(0,0)'}}
+pad.addEventListener('pointerup',endDrag);pad.addEventListener('pointercancel',endDrag);pad.addEventListener('lostpointercapture',endDrag);
+window.addEventListener('blur',endDrag);
 function setMode(m){{
 if(m===curMode)return;
 fetch('/mode/'+m,{{method:'POST'}}).then(r=>r.json()).then(d=>{{
@@ -172,9 +238,13 @@ fetch('/mode/'+m,{{method:'POST'}}).then(r=>r.json()).then(d=>{{
  document.getElementById('btnManual').className=curMode==='manual'?'active':'inactive';
  document.getElementById('btnFollow').className=curMode==='follow'?'active':'inactive';
  document.getElementById('s').textContent='USB直连 C3 | '+(curMode==='manual'?'遥控模式':'跟随模式');
- let btns=document.querySelectorAll('.ctrl button');
+ let btns=document.querySelectorAll('.ctrl button,.gbtn');
  btns.forEach(b=>{{if(b.dataset.cmd!=='stop')b.disabled=curMode!=='manual';}});
- if(curMode!=='manual')r();
+ if(curMode!=='manual'){{
+   r();
+   gpos={{pan:{PAN_CENTER},tilt:{TILT_CENTER}}};
+   fetch('/gimbal/center',{{method:'POST'}});
+ }}
 }}).catch(e=>console.log(e));}}
 document.querySelectorAll('.ctrl button').forEach(b=>{{
  b.addEventListener('contextmenu',e=>e.preventDefault());
@@ -207,7 +277,7 @@ def main():
     p.add_argument('--uart', type=str, default=UART)
     args = p.parse_args()
     UART = args.uart
-    print(f"ShadowCarrier-RK v4 | HTTP :{args.port} | USB->C3 {UART}")
+    print(f"ShadowCarrier-RK v5 | HTTP :{args.port} | USB->C3 {UART}")
     ok = uart_open(UART)
     if ok: time.sleep(0.5)
     print("OK" if ok else "UART FAIL (will retry on udev)")
