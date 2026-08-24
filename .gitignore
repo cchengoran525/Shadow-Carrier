@@ -14,3 +14,9 @@ build/
 # Keep WiFi credentials out if a local override file is added later.
 *Secrets.h
 secrets.h
+
+# Python cache
+__pycache__/
+
+# Agent coordination file (local only, not synced to GitHub)
+EXCHANGE.md
