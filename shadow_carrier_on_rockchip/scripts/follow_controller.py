@@ -16,7 +16,6 @@ MIN_SPD = 60          # 最小轮速 (一侧降到这个速度时已是急转)
 MAX_OFFSET = 200       # 偏移饱和点
 
 TARGET_BBOX_H = 400
-DIST_DEADBAND = 40
 MIN_BBOX_H = 150
 FWD_SPD = 100
 
@@ -44,6 +43,7 @@ class FollowController:
         self.profile = None      # 主人模板 (OwnerProfile)
         self.last_score = 0.0
         self.tracker = None      # 单目标α-β跟踪器(认主成功后创建)
+        self.low_streak = 0      # 连续低分/丢失拍数(逃逸错锁用)
 
     def start(self):
         self.running = True; self.lost = 0
@@ -77,11 +77,10 @@ class FollowController:
     def _fetch_person(self):
         """认主版选人: 有主人模板按 颜色+体态 打分, 否则降级跟最大"""
         try:
-            req = urllib.request.Request(DET_API, headers={"User-Agent": "follow"})
-            d = json.loads(urllib.request.urlopen(req, timeout=1.0).read())
+            import owner_id
+            dets = owner_id._fetch_detections()  # 已做类型防御
         except Exception:
-            return None
-        dets = [x for x in d.get("detections", []) if x.get("c") == "person"]
+            dets = []
         if not dets:
             return None
         if self.profile is not None:
@@ -97,12 +96,27 @@ class FollowController:
                     self.profile, img, dets, tracker=self.tracker)
                 self.last_score = score
                 if box is None:
+                    self.low_streak += 1
+                    if self.tracker is not None:
+                        self.tracker.coast()
+                        if self.low_streak >= 8:   # ~3s全低分: 解除错锁偏向
+                            self.tracker.reset()
+                            self.low_streak = 0
+                            print("[follow] re-acquire: tracker reset")
                     return None
                 cx = (box["x1"] + box["x2"]) / 2
                 cy = (box["y1"] + box["y2"]) / 2
                 if self.tracker is None:
                     self.tracker = owner_id.TargetTracker()
                 self.tracker.update(cx, cy)
+                if score < owner_id.SCORE_MIN - 0.05:
+                    self.low_streak += 1
+                    if self.low_streak >= 8:
+                        self.tracker.reset()
+                        self.low_streak = 0
+                        print("[follow] re-acquire: low-score streak")
+                else:
+                    self.low_streak = 0
                 return {"cx": cx, "h": box["y2"] - box["y1"], "cy": cy}
             except Exception as e:
                 print(f"[follow] owner select error: {e}")
@@ -172,7 +186,7 @@ class FollowController:
         offset = self.scx - FCX
         abs_off = abs(offset)
 
-        # === 差速映射: 偏移→左右轮速 ===
+        # === 差速映射: 偏移→左右轮速 (v3原版, 距离由人自行掌握) ===
         if abs_off <= DIR_DEADBAND:
             # 直走
             left = right = BASE_SPD

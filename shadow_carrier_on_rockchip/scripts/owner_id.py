@@ -18,6 +18,9 @@ H_BINS, S_BINS = 30, 32
 W_COLOR = 0.7
 W_ASPECT = 0.3
 SCORE_MIN = 0.40         # 低于此分视为不是主人
+SAT_LOW = 40.0           # 模板平均饱和度低于此值 → 颜色权重自动降档
+CONF_MIN = 0.50          # person置信度地板(YOLO对家具的低置信度误报在此被拦)
+MIN_BOX_H = 70           # 最小框高px(过滤远处小误检)
 
 # ===== BLE 在场心跳 (慢速兜底, 非实时锚定) =====
 BAND_MAC = "04:34:C3:15:AE:0E"   # Xiaomi Smart Band 9, 未连接手机时公开广播
@@ -62,6 +65,7 @@ def band_recently_seen():
 # ===== 单目标跟踪器 (α-β滤波, 方案④: 预测+门控关联, 纯算术零开销) =====
 ALPHA = 0.7              # 位置修正系数
 BETA = 0.35              # 速度修正系数
+CONT_BONUS = 0.08        # 连续性加分满格值(距预测越近加越多)
 NEAR_PX = 80.0           # 连续性加分满格距离
 SNAP_GATE_PX = 220.0     # 硬门控: 距预测超过此值的候选重罚(防吸到别人身上)
 
@@ -103,12 +107,28 @@ class TargetTracker:
 
 
 def _fetch_detections():
+    """拉person检测列表。yolo_daemon偶发把坐标序列化成字符串 → 这里统一强转float"""
     try:
         req = urllib.request.Request(DET_API, headers={"User-Agent": "owner"})
         d = json.loads(urllib.request.urlopen(req, timeout=1.0).read())
-        return [x for x in d.get("detections", []) if x.get("c") == "person"]
     except Exception:
         return []
+    out = []
+    for x in d.get("detections", []):
+        try:
+            det = {"c": str(x.get("c")),
+                   "x1": float(x["x1"]), "y1": float(x["y1"]),
+                   "x2": float(x["x2"]), "y2": float(x["y2"]),
+                   "p": float(x.get("p", 0.0))}
+        except (KeyError, TypeError, ValueError):
+            continue  # 单条坏数据直接丢弃, 不拖垮整帧
+        if det["c"] != "person":
+            continue
+        # 幻影人过滤: YOLO常对椅子/包等以低置信度误报成person
+        if det["p"] < CONF_MIN or (det["y2"] - det["y1"]) < MIN_BOX_H:
+            continue
+        out.append(det)
+    return out
 
 
 def _largest(dets):
@@ -123,7 +143,10 @@ def _largest(dets):
 
 def _roi_hist(hsv, box):
     """bbox 内的 H-S 二维直方图, 归一化。低饱和像素(黑白灰衣服)自动权重低"""
-    x1, y1, x2, y2 = [int(round(v)) for v in box]
+    x1 = int(round(box["x1"]))
+    y1 = int(round(box["y1"]))
+    x2 = int(round(box["x2"]))
+    y2 = int(round(box["y2"]))
     h, w = hsv.shape[:2]
     x1, y1 = max(0, x1), max(0, y1)
     x2, y2 = min(w, x2), min(h, y2)
@@ -142,12 +165,13 @@ def _aspect(box):
 
 
 class OwnerProfile:
-    """主人外观模板: 平均 HSV 直方图 + 中位体态比"""
+    """主人外观模板: 平均 HSV 直方图 + 中位体态比 (+饱和度能量用于自适应权重)"""
 
-    def __init__(self, hist, aspect, samples):
+    def __init__(self, hist, aspect, samples, sat_energy=None):
         self.hist = hist
         self.aspect = aspect
         self.samples = samples
+        self.sat_energy = sat_energy
 
     def color_sim(self, hist):
         if self.hist is None or hist is None:
@@ -160,8 +184,12 @@ class OwnerProfile:
         return max(0.0, 1.0 - diff / 0.5)
 
     def score_box(self, hsv, box):
-        return W_COLOR * self.color_sim(_roi_hist(hsv, box)) \
-             + W_ASPECT * self.aspect_sim(_aspect(box))
+        w_c, w_a = W_COLOR, W_ASPECT
+        # 低饱和模板(灰白黑衣服)颜色区分度差 → 自动降权, 靠体态+连续性
+        if self.sat_energy is not None and self.sat_energy < SAT_LOW:
+            w_c, w_a = 0.3, 0.7
+        return w_c * self.color_sim(_roi_hist(hsv, box)) \
+             + w_a * self.aspect_sim(_aspect(box))
 
 
 def read_recent_frame():
@@ -178,7 +206,7 @@ def read_recent_frame():
 
 def enroll(log=print):
     """快速认主: 采样 ENROLL_DURATION_S 秒内最大 person, 返回 OwnerProfile 或 None"""
-    hists, aspects = [], []
+    hists, aspects, sats = [], [], []
     t_end = time.time() + ENROLL_DURATION_S
     while time.time() < t_end:
         box = _largest(_fetch_detections())
@@ -190,13 +218,20 @@ def enroll(log=print):
                 if h is not None:
                     hists.append(h)
                     aspects.append(_aspect(box))
+                    x1 = max(0, int(box["x1"])); y1 = max(0, int(box["y1"]))
+                    x2 = min(hsv.shape[1], int(box["x2"]))
+                    y2 = min(hsv.shape[0], int(box["y2"]))
+                    if x2 - x1 > 8 and y2 - y1 > 8:
+                        sats.append(float(hsv[y1:y2, x1:x2, 1].mean()))
         time.sleep(ENROLL_INTERVAL_S)
     log(f"[owner] enroll samples={len(hists)}")
     if len(hists) < 4:
         return None
     mean_hist = np.mean(np.stack(hists), axis=0)
     cv2.normalize(mean_hist, mean_hist, 0, 1, cv2.NORM_MINMAX)
-    return OwnerProfile(mean_hist, float(np.median(aspects)), len(hists))
+    sat = float(np.mean(sats)) if sats else None
+    log(f"[owner] template sat_energy={sat:.0f}" + (" (低饱和:颜色降权)" if sat and sat < SAT_LOW else ""))
+    return OwnerProfile(mean_hist, float(np.median(aspects)), len(hists), sat)
 
 
 def select_target(profile, img_bgr, dets, tracker=None):
@@ -219,7 +254,7 @@ def select_target(profile, img_bgr, dets, tracker=None):
             dist = ((cx - pred[0]) ** 2 + (cy - pred[1]) ** 2) ** 0.5
             s += CONT_BONUS * max(0.0, 1.0 - dist / NEAR_PX)
             if dist > SNAP_GATE_PX:
-                s -= 0.5   # 预测点附近明明有人却跳到远处 → 大概率是别人
+                s -= 0.15   # 软门控: 轻微抑制远距候选, 但不锁死(防错锁陷阱)
         if s > best_s:
             best, best_s = box, s
     if best_s < SCORE_MIN:
