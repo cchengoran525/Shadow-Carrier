@@ -3,7 +3,7 @@
 
 # --- 主人识别 ---
 owner:
-  bluetooth_mac: "AA:BB:CC:DD:EE:FF"   # 主人手机蓝牙MAC，改这里！
+  bluetooth_mac: "04:34:C3:15:AE:0E"   # 主人手环 Xiaomi Smart Band 9（未连手机时公开广播）
   bt_rssi_threshold: -60                # RSSI大于此值才考虑
   color_similarity_threshold: 0.7       # HSV颜色直方图相似度阈值
   pose_similarity_threshold: 0.15       # 体态比允许误差范围

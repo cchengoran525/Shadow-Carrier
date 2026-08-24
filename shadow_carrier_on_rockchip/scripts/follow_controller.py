@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""follow_controller.py v3 - 差速弧线跟人: DIFF L<左速> R<右速>"""
+"""follow_controller.py v4 - 差速弧线跟人 + 快速认主(颜色+体态, owner_id)"""
 import time, json, urllib.request
+import cv2
 
 # ========== 调参区 ==========
 FW, FH = 640, 480
@@ -40,10 +41,24 @@ class FollowController:
         self.running = False
         self.last_turn_dir = None
         self.backing = False
+        self.profile = None      # 主人模板 (OwnerProfile)
+        self.last_score = 0.0
+        self.tracker = None      # 单目标α-β跟踪器(认主成功后创建)
 
     def start(self):
         self.running = True; self.lost = 0
         self.last_turn_dir = None; self.backing = False
+        # 快速认主: 抓不到模板则降级为"跟最大"
+        try:
+            import owner_id
+            p = owner_id.enroll(log=print)
+            self.profile = p
+            print(f"[follow] owner lock {'OK' if p else 'FAIL -> largest-fallback'}")
+            if p is not None:
+                owner_id.start_ble_heartbeat(log=print)  # 手环在场心跳(慢速兜底)
+        except Exception as e:
+            self.profile = None
+            print(f"[follow] owner module error ({e}) -> largest-fallback")
         print("[follow] started")
 
     def stop(self):
@@ -60,14 +75,40 @@ class FollowController:
         print("[follow] resumed")
 
     def _fetch_person(self):
+        """认主版选人: 有主人模板按 颜色+体态 打分, 否则降级跟最大"""
         try:
             req = urllib.request.Request(DET_API, headers={"User-Agent": "follow"})
             d = json.loads(urllib.request.urlopen(req, timeout=1.0).read())
         except Exception:
             return None
+        dets = [x for x in d.get("detections", []) if x.get("c") == "person"]
+        if not dets:
+            return None
+        if self.profile is not None:
+            try:
+                import owner_id
+                img = owner_id.read_recent_frame()
+                if img is None:
+                    return None
+                # 长时间丢失后重捕获: 旧预测已失效, 清掉再关联
+                if self.lost > LOST_LIMIT and self.tracker is not None:
+                    self.tracker.reset()
+                box, score = owner_id.select_target(
+                    self.profile, img, dets, tracker=self.tracker)
+                self.last_score = score
+                if box is None:
+                    return None
+                cx = (box["x1"] + box["x2"]) / 2
+                cy = (box["y1"] + box["y2"]) / 2
+                if self.tracker is None:
+                    self.tracker = owner_id.TargetTracker()
+                self.tracker.update(cx, cy)
+                return {"cx": cx, "h": box["y2"] - box["y1"], "cy": cy}
+            except Exception as e:
+                print(f"[follow] owner select error: {e}")
+                self.profile = None  # 坏了就降级, 别卡死跟随
         best = None
-        for det in d.get("detections", []):
-            if det.get("c") != "person": continue
+        for det in dets:
             area = (det["x2"] - det["x1"]) * (det["y2"] - det["y1"])
             if best is None or area > best["area"]:
                 best = {"cx": (det["x1"] + det["x2"]) / 2,
@@ -95,6 +136,16 @@ class FollowController:
         if person is None:
             self.lost += 1
             if self.lost >= LOST_LIMIT:
+                # 主人模板在 + 手环还在附近 → 原地等待(不乱跑), 人回来继续跟
+                if self.profile is not None:
+                    try:
+                        import owner_id
+                        if owner_id.band_recently_seen():
+                            self.send_cmd("STOP")
+                            return "STOP", 0, {"state": "wait_owner",
+                                               "band": True, "lost": self.lost}
+                    except Exception:
+                        pass
                 self.send_cmd("STOP")
                 self.last_turn_dir = None
                 return "STOP", 0, {"state": "lost_stop"}
@@ -143,6 +194,7 @@ class FollowController:
 
     def _info(self, offset):
         return {"state": "active", "paused": self.paused,
+                "owner": self.profile is not None, "score": round(self.last_score, 2),
                 "smooth_cx": round(self.scx, 1), "smooth_h": round(self.sh, 1),
                 "offset": round(offset, 1), "lost": self.lost}
 
