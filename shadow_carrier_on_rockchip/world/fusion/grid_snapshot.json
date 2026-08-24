@@ -1,0 +1,186 @@
+{
+ "ts": 1677773916.02529,
+ "frame_size": [
+  640,
+  480
+ ],
+ "yolo": {
+  "fps": 14.7,
+  "infer_ms": 57.1,
+  "objects": [
+   {
+    "cls": "tv",
+    "conf": 0.39,
+    "bbox": [
+     0,
+     1,
+     183,
+     350
+    ]
+   }
+  ]
+ },
+ "geometry": {
+  "doors": [],
+  "pipeline_ms": 3552.1
+ },
+ "grid": [
+  [
+   {
+    "label": "free",
+    "sources": [
+     "edge_density"
+    ]
+   },
+   {
+    "label": "obj:tv",
+    "sources": [
+     "yolo"
+    ],
+    "conf": 0.39
+   },
+   {
+    "label": "blocked",
+    "sources": [
+     "edge_density"
+    ]
+   },
+   {
+    "label": "free",
+    "sources": [
+     "edge_density"
+    ]
+   },
+   {
+    "label": "blocked",
+    "sources": [
+     "edge_density"
+    ]
+   },
+   {
+    "label": "blocked",
+    "sources": [
+     "edge_density"
+    ]
+   },
+   {
+    "label": "blocked",
+    "sources": [
+     "edge_density"
+    ]
+   },
+   {
+    "label": "blocked",
+    "sources": [
+     "edge_density"
+    ]
+   }
+  ],
+  [
+   {
+    "label": "blocked",
+    "sources": [
+     "edge_density"
+    ]
+   },
+   {
+    "label": "blocked",
+    "sources": [
+     "edge_density"
+    ]
+   },
+   {
+    "label": "blocked",
+    "sources": [
+     "edge_density"
+    ]
+   },
+   {
+    "label": "blocked",
+    "sources": [
+     "edge_density"
+    ]
+   },
+   {
+    "label": "blocked",
+    "sources": [
+     "edge_density"
+    ]
+   },
+   {
+    "label": "blocked",
+    "sources": [
+     "edge_density"
+    ]
+   },
+   {
+    "label": "blocked",
+    "sources": [
+     "edge_density"
+    ]
+   },
+   {
+    "label": "blocked",
+    "sources": [
+     "edge_density"
+    ]
+   }
+  ],
+  [
+   {
+    "label": "blocked",
+    "sources": [
+     "edge_density"
+    ]
+   },
+   {
+    "label": "blocked",
+    "sources": [
+     "edge_density"
+    ]
+   },
+   {
+    "label": "blocked",
+    "sources": [
+     "edge_density"
+    ]
+   },
+   {
+    "label": "blocked",
+    "sources": [
+     "edge_density"
+    ]
+   },
+   {
+    "label": "blocked",
+    "sources": [
+     "edge_density"
+    ]
+   },
+   {
+    "label": "blocked",
+    "sources": [
+     "edge_density"
+    ]
+   },
+   {
+    "label": "blocked",
+    "sources": [
+     "edge_density"
+    ]
+   },
+   {
+    "label": "blocked",
+    "sources": [
+     "edge_density"
+    ]
+   }
+  ]
+ ],
+ "timing_ms": {
+  "frame_grab": 83.6,
+  "det_fetch": 110.7,
+  "geometry": 3552.1,
+  "total": 3663.1
+ }
+}
