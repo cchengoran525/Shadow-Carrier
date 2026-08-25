@@ -150,14 +150,14 @@ class FollowController:
         if person is None:
             self.lost += 1
             if self.lost >= LOST_LIMIT:
-                # 主人模板在 + 手环还在附近 → 原地等待(不乱跑), 人回来继续跟
+                # 主人模板在 + 手环或热点任一在场 → 原地等待(不乱跑)
                 if self.profile is not None:
                     try:
                         import owner_id
-                        if owner_id.band_recently_seen():
+                        if owner_id.owner_nearby():
                             self.send_cmd("STOP")
                             return "STOP", 0, {"state": "wait_owner",
-                                               "band": True, "lost": self.lost}
+                                               "lost": self.lost}
                     except Exception:
                         pass
                 self.send_cmd("STOP")

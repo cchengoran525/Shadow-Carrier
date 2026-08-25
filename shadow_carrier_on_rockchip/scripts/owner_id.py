@@ -29,6 +29,37 @@ BAND_FRESH_S = 60                # 多久内见过手环算"主人还在附近"
 _band_last_seen = 0.0
 _heartbeat_started = False
 
+# ===== WiFi 热点在场信号 (方案A): 手机连着车热点 = 主人在场 =====
+# Android/iOS 的WiFi随机MAC按SSID固定 → 同一手机每次连同一热点的MAC一致
+# 注意: AP6255 AP模式下 iw station dump 无输出(驱动限制), 改用 邻居表+ping 判活
+WIFI_FRESH_S = 60
+PHONE_MAC = "b6:ac:ee:7e:b2:fd"   # iPhone8 在 ShadowCarrier-RK 热点下的固定MAC
+_wifi_last_seen = 0.0
+
+
+def _wifi_station_check(log=print):
+    """按MAC在邻居表找手机的IP, ping通即在场"""
+    global _wifi_last_seen
+    import subprocess
+    try:
+        out = subprocess.run(["ip", "neigh", "show"],
+                             capture_output=True, text=True, timeout=5).stdout
+        for line in out.splitlines():
+            # 格式: 192.168.4.4 dev wlan0 lladdr b6:ac:..:fd REACHABLE
+            parts = line.split()
+            if len(parts) >= 6 and parts[1] == "dev" and \
+               parts[3] == "lladdr" and parts[4].lower() == PHONE_MAC.lower():
+                if parts[5].upper() in ("FAILED", "INCOMPLETE"):
+                    continue
+                r = subprocess.run(["ping", "-c1", "-W1", parts[0]],
+                                   capture_output=True, timeout=3)
+                if r.returncode == 0:
+                    _wifi_last_seen = time.time()
+                    return True
+    except Exception:
+        pass
+    return False
+
 
 def start_ble_heartbeat(log=print):
     """后台线程: 每~40s扫一轮bluetoothctl, 记录手环最后出现时间"""
@@ -52,6 +83,10 @@ def start_ble_heartbeat(log=print):
                     _band_last_seen = time.time()
             except Exception:
                 pass
+            try:
+                _wifi_station_check(log=log)
+            except Exception:
+                pass
             time.sleep(30)
 
     threading.Thread(target=_loop, daemon=True).start()
@@ -60,6 +95,15 @@ def start_ble_heartbeat(log=print):
 
 def band_recently_seen():
     return (time.time() - _band_last_seen) < BAND_FRESH_S
+
+
+def wifi_recently_seen():
+    return (time.time() - _wifi_last_seen) < WIFI_FRESH_S
+
+
+def owner_nearby():
+    """双路在场信号: 手环BLE 或 热点连接, 任一可见即在场"""
+    return band_recently_seen() or wifi_recently_seen()
 
 
 # ===== 单目标跟踪器 (α-β滤波, 方案④: 预测+门控关联, 纯算术零开销) =====
