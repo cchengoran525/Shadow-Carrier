@@ -24,6 +24,13 @@ def uart_open(port):
     global uart_fd
     try:
         fd = os.open(port, os.O_RDWR | os.O_NOCTTY)
+        import fcntl
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)  # 串口owner保护
+        except BlockingIOError:
+            os.close(fd)
+            print(f"[UART] {port} 已被其他进程占用 (flock owner冲突)")
+            return False
         attr = termios.tcgetattr(fd)
         attr[2] = attr[2] & ~(termios.CSTOPB | termios.PARENB | termios.CSIZE) | termios.CS8 | termios.CREAD | termios.CLOCAL
         attr[2] &= ~termios.CRTSCTS; attr[3] = 0

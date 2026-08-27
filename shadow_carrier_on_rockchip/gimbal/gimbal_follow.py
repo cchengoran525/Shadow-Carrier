@@ -41,7 +41,13 @@ class C3Link:
     """极简串口: termios 直用, 不依赖 pyserial (与 rk_control.py 同风格)"""
 
     def __init__(self, path, baud):
+        import fcntl
         self.fd = os.open(path, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+        try:
+            fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)  # 串口owner保护
+        except BlockingIOError:
+            os.close(self.fd)
+            raise RuntimeError(f"{path} 已被其他进程占用(先停 rk-control 或切手动模式)")
         attrs = termios.tcgetattr(self.fd)
         speed = getattr(termios, f"B{baud}")
         attrs[0] = termios.IGNBRK          # iflag
