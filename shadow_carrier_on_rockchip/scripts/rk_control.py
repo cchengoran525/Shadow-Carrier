@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""rk_control.py v5 - USB直连C3 + 遥控/跟随模式切换 + 云台遥控"""
-import os, termios, time, threading, json, socketserver
+"""rk_control.py v6 - USB直连C3 + 遥控/跟随模式切换 + 云台凝视(W1)"""
+import os, sys, termios, time, threading, json, socketserver, urllib.request
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 UART = "/dev/ttyACM0"
@@ -13,6 +13,33 @@ PAN_RANGE = 180.0
 TILT_RANGE = 180.0
 PAN_CENTER = 90.0
 TILT_CENTER = 90.0
+
+# 凝视控制器几何常数 (state/calib/params.py 三方互证值)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "state"))
+try:
+    from calib.params import TILT_LEVEL_CMD, PAN_FORWARD_CMD
+except Exception:
+    TILT_LEVEL_CMD = 112.0    # 兜底: 标定文件缺失时的实测值
+    PAN_FORWARD_CMD = 90.58
+CONF_MIN = 0.5               # 与[认主]对齐
+
+# 凝视绞合常数 (W3 分配律草案)
+PAN_ERR_ENTER = 25.0         # 底盘修正触发阈(度)
+PAN_ERR_EXIT = 12.0          # 底盘修正退出阈(滞回)
+ERR_HOLD_S = 0.5             # 持续超阈多久才触发
+ESC_BACK_S = 0.8             # 避障倒车时长(s)
+ESC_GIVEUP_S = 3.0           # 阻碍持续多久放弃绕行改等待(s)
+
+obs_state = {"t": 0.0, "blocked": False, "cm": -1}
+obs_lock = threading.Lock()
+
+# 主人世界方位角 (云台解耦后的真实偏差, 供follow转向) — [云台]线提供
+owner_bearing = {"theta": None}
+owner_bearing_lock = threading.Lock()
+
+def _get_owner_bearing():
+    with owner_bearing_lock:
+        return owner_bearing["theta"]
 
 uart_fd = None
 uart_lock = threading.Lock()
@@ -69,10 +96,25 @@ def gimbal_send(body):
 
 def uart_reader():
     global uart_fd
+    buf = b""
     while uart_fd is not None:
         try:
             data = os.read(uart_fd, 256)
-            if not data:
+            if data:
+                buf += data
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    s = line.decode(errors="ignore").strip()
+                    if s.startswith("OBS "):
+                        try:
+                            parts = s.split()
+                            with obs_lock:
+                                obs_state.update(t=time.monotonic(),
+                                                 blocked=(parts[1] == "1"),
+                                                 cm=int(parts[2]))
+                        except Exception:
+                            pass
+            else:
                 time.sleep(0.05)
         except Exception:
             time.sleep(0.1)
@@ -94,6 +136,108 @@ def _follow_loop():
     finally:
         if fc: fc.stop()
 
+# ====== 凝视控制器 (W1: 跟随模式云台自动盯主人) ======
+
+gaze = None
+gaze_lock = threading.Lock()
+
+def _pick_owner_u(dets):
+    """主人选择v0: conf≥CONF_MIN 的person里取框面积最大者的中心u。"""
+    best = None
+    for r in dets:
+        if r.get("c") != "person" or r.get("p", 0) < CONF_MIN:
+            continue
+        area = (r["x2"] - r["x1"]) * (r["y2"] - r["y1"])
+        if best is None or area > best[0]:
+            best = (area, (r["x1"] + r["x2"]) / 2)
+    return best[1] if best else None
+
+def _fetch_detections():
+    try:
+        req = urllib.request.Request("http://127.0.0.1:8080/api/detections",
+                                     headers={"User-Agent": "gaze"})
+        return json.loads(urllib.request.urlopen(req, timeout=0.8).read()).get("detections", [])
+    except Exception:
+        return None   # None=API失败(不算丢检)
+
+def _gaze_loop():
+    """跟随模式专用线程:
+    每0.1s 检测→凝视→发PAN;
+    同时解算主人世界方位角供follow转向(云台解耦);
+    避障: 超声波BLOCKED → 倒车脱离, 持续受阻停车等待(由drive线程执行)。"""
+    global gaze
+    import urllib.request
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "state"))
+    from gaze import GazeController, u_to_bearing
+    from calib.params import TILT_LEVEL_CMD, PAN_FORWARD_CMD
+    with gaze_lock:
+        gaze = GazeController(PAN_FORWARD_CMD)
+    uart_send(f"PAN {PAN_FORWARD_CMD:.1f}")
+    uart_send(f"TLT {TILT_LEVEL_CMD:.1f}")
+    t = time.monotonic()
+    while _get_mode() == "follow":
+        dets = _fetch_detections()
+        if dets is not None:
+            t = time.monotonic()
+            u = _pick_owner_u(dets)
+            out = gaze.feed(t, u)
+            uart_send(f"PAN {out['pan_deg']:.1f}")
+            # 世界方位角 = 光学偏角 + 云台已补偿量
+            with owner_bearing_lock:
+                if u is not None:
+                    owner_bearing["theta"] = u_to_bearing(u) + (gaze.pan - PAN_FORWARD_CMD)
+                else:
+                    owner_bearing["theta"] = None
+        time.sleep(0.1)
+
+    # 退出跟随: 云台回中
+    with gaze_lock:
+        gaze = None
+    uart_send(f"PAN {PAN_CENTER:.1f}")
+    uart_send(f"TLT {TILT_CENTER:.1f}")
+    print("[gaze] 停止, 已回中")
+
+
+def _gaze_drive_loop():
+    """超声波避障线程 (级联式方案定稿后, 底盘转向完全归follow_controller原生逻辑,
+    本线程只保留避障: BLOCKED时倒车脱离, 持续受阻停车等待, 解除后归还底盘)"""
+    esc_active = False
+    esc_until = 0.0
+    esc_start = 0.0
+    while _get_mode() == "follow":
+        t = time.monotonic()
+        with obs_lock:
+            obs_fresh = t - obs_state["t"] < 1.0
+            blocked = obs_fresh and obs_state["blocked"]
+        if blocked:
+            if not esc_active:
+                esc_active = True
+                esc_start = t
+                esc_until = t + ESC_BACK_S
+                if fc is not None:
+                    fc.pause()
+                uart_send("STOP")
+                print("[drive] 避障: 倒车脱离")
+            if t < esc_until:
+                uart_send("MOVE B 50")       # C3只禁前进, 倒车可走
+            elif t - esc_start > ESC_GIVEUP_S:
+                uart_send("STOP")            # 持续受阻: 停车等待
+        elif esc_active:                     # 阻碍解除
+            esc_active = False
+            uart_send("STOP")
+            if fc is not None:
+                fc.resume()
+            print("[drive] 阻碍解除, follow恢复")
+        time.sleep(0.1)
+    if fc is not None:
+        fc.resume()
+    print("[drive] 线程退出")
+
+
+def _start_gaze():
+    threading.Thread(target=_gaze_loop, daemon=True).start()
+    threading.Thread(target=_gaze_drive_loop, daemon=True).start()
+
 def _start_follow():
     global mode
     try:
@@ -101,6 +245,7 @@ def _start_follow():
             fc.resume()
             return
         with mode_lock: mode = "follow"
+        _start_gaze()
         threading.Thread(target=_follow_loop, daemon=True).start()
     except Exception as e:
         print(f"[follow] start error: {e}")

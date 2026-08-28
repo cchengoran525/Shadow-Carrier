@@ -156,4 +156,17 @@ void loop() {
   ultrasonic.update();
   motor.setObstacleDetected(ultrasonic.isObstacleDetected());
   motor.update();
+
+  // 超声波遥测: 状态变化即报 + 500ms心跳 (供RK避障决策)
+  static uint32_t lastObsPub = 0;
+  static bool lastObsPubState = false;
+  bool obsNow = ultrasonic.isObstacleDetected();
+  if (obsNow != lastObsPubState || millis() - lastObsPub > 500) {
+    Serial.print("OBS ");
+    Serial.print(obsNow ? 1 : 0);
+    Serial.print(" ");
+    Serial.println(ultrasonic.lastDistanceCm());
+    lastObsPubState = obsNow;
+    lastObsPub = millis();
+  }
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """follow_controller.py v4 - 差速弧线跟人 + 快速认主(颜色+体态, owner_id)"""
-import time, json, urllib.request
+import time, json, math, urllib.request
 import cv2
 
 # ========== 调参区 ==========
@@ -30,7 +30,10 @@ DET_API = "http://127.0.0.1:8080/api/detections"
 # ============================
 
 class FollowController:
-    def __init__(self, send_cmd_fn):
+    def __init__(self, send_cmd_fn, bearing_fn=None):
+        # bearing_fn: [云台]线提供的"主人世界方位角(度)"只读回调。
+        # 非None时转向误差用它(云台解耦), 否则退回原始bbox像素偏差。
+        self.bearing_fn = bearing_fn
         self.send_cmd = send_cmd_fn
         self.scx = FCX
         self.scy = FH / 2
@@ -186,6 +189,12 @@ class FollowController:
                 self.sh  = ALPHA * raw_h + (1 - ALPHA) * self.sh
 
         offset = self.scx - FCX
+        # 云台解耦: 世界方位角→等效像素偏差 (FX≈508 来自 state/calib/params.py)
+        # 云台边缘保持会把原始bbox误差钳在~108px, 这里把它补回来
+        if self.bearing_fn is not None:
+            th = self.bearing_fn()
+            if th is not None:
+                offset = 508.0 * math.tan(math.radians(th))
         abs_off = abs(offset)
 
         # === 差速映射: 偏移→左右轮速 (v3原版, 距离由人自行掌握) ===
