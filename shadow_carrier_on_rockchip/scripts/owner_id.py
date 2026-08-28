@@ -271,10 +271,16 @@ def enroll(log=print):
     log(f"[owner] enroll samples={len(hists)}")
     if len(hists) < 4:
         return None
+    sat = float(np.mean(sats)) if sats else None
+    # 低饱和模板底线 (2026-08-28 桌子事故): 灰白模板会匹配一切灰色杂物,
+    # 锁得越准错得越远 → 拒绝注册, 降级"最大person"跟随 (宁笨勿邪)
+    if sat is not None and sat < SAT_LOW:
+        log(f"[owner] enroll 拒绝: sat_energy={sat:.0f} < {SAT_LOW:.0f} "
+            "(低饱和模板会锁向灰色杂物) → 降级最大person跟随")
+        return None
     mean_hist = np.mean(np.stack(hists), axis=0)
     cv2.normalize(mean_hist, mean_hist, 0, 1, cv2.NORM_MINMAX)
-    sat = float(np.mean(sats)) if sats else None
-    log(f"[owner] template sat_energy={sat:.0f}" + (" (低饱和:颜色降权)" if sat and sat < SAT_LOW else ""))
+    log(f"[owner] template sat_energy={sat:.0f}")
     return OwnerProfile(mean_hist, float(np.median(aspects)), len(hists), sat)
 
 
