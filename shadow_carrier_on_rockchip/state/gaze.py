@@ -29,7 +29,7 @@ KEEP_EDGE_DEG = 24.0       # 救援阈值: 人到画面24°(接近出画)才出�
 KEEP_RATE = 10.0           # 救援缓转速度 (度/s)
 HOLD_TIMEOUT = 1.5
 SEARCH_TIMEOUT = 4.0
-SCAN_AMP = 20.0
+SCAN_AMP = 45.0            # 定向扫描最大扩展角(度)
 SCAN_RATE = 20.0
 CONF_MIN = 0.5
 # ========================================
@@ -55,11 +55,14 @@ class GazeController:
         self.pan = pan_now
         self.pan_last_seen = pan_now
         self.last_seen_t = None
+        self.last_exit_sign = 1     # 人消失时在光轴哪侧: +1右/-1左 → 定向扫描依据
         self._out = {"pan_deg": pan_now, "source": "CENTER", "t": 0.0}
 
     def feed(self, t, owner_u):
         if owner_u is not None:
             bearing = u_to_bearing(owner_u)
+            if abs(bearing) > 0.5:
+                self.last_exit_sign = 1 if bearing > 0 else -1
             if abs(bearing) > KEEP_EDGE_DEG:
                 self.mode = "KEEP_TURN"
                 # 向边缘方向缓转看住: bearing正(左) × PAN_SIGN(-1) → pan减小
@@ -78,8 +81,10 @@ class GazeController:
             self.mode = "HOLD"                       # 冻结
         elif loss < SEARCH_TIMEOUT:
             self.mode = "SEARCH"
-            phase = math.sin((loss - HOLD_TIMEOUT) * 1.2)
-            self.pan = _wrap180(self.pan_last_seen + SCAN_AMP * phase)
+            # 定向扩展扫描: 朝人消失的那一侧越扫越远 (10°→45°), 不再无方向正弦摆
+            sweep_dir = PAN_SIGN * self.last_exit_sign
+            offset = min(SCAN_RATE * (loss - HOLD_TIMEOUT), SCAN_AMP)
+            self.pan = _wrap180(self.pan_last_seen + sweep_dir * offset)
         else:
             self.mode = "CENTER"
             delta = _wrap180(PAN_FORWARD - self.pan)
