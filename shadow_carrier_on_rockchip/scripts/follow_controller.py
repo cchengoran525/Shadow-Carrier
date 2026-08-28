@@ -106,6 +106,17 @@ class FollowController:
                             self.tracker.reset()
                             self.low_streak = 0
                             print("[follow] re-acquire: tracker reset")
+                    # 机主原则(2026-08-28): 模板不匹配 ≠ 没有人。
+                    # YOLO person 是唯一先验, 模板只是偏好层 → 降级最大person, 不停车
+                    best = None
+                    for det in dets:
+                        area = (det["x2"] - det["x1"]) * (det["y2"] - det["y1"])
+                        if best is None or area > best["area"]:
+                            best = {"cx": (det["x1"] + det["x2"]) / 2,
+                                    "cy": (det["y1"] + det["y2"]) / 2,
+                                    "h": det["y2"] - det["y1"]}
+                    if best is not None:
+                        return best
                     return None
                 cx = (box["x1"] + box["x2"]) / 2
                 cy = (box["y1"] + box["y2"]) / 2
