@@ -25,8 +25,8 @@ from calib.params import CX, FX, K1, K2
 # ================= 常数 =================
 PAN_FORWARD = 90.58        # 光轴正前方指令角
 PAN_SIGN = -1              # +1=指令增大向左; -1=指令增大向右(PAN_INVERT=true)
-KEEP_EDGE_DEG = 12.0       # 光轴偏角超过此值才缓转
-KEEP_RATE = 18.0           # 保持模式的缓转速度 (度/s)
+KEEP_EDGE_DEG = 24.0       # 救援阈值: 人到画面24°(接近出画)才出手 (12°太敏感会持续扰动follow)
+KEEP_RATE = 10.0           # 救援缓转速度 (度/s)
 HOLD_TIMEOUT = 1.5
 SEARCH_TIMEOUT = 4.0
 SCAN_AMP = 20.0

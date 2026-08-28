@@ -23,10 +23,15 @@ except Exception:
     PAN_FORWARD_CMD = 90.58
 CONF_MIN = 0.5               # 与[认主]对齐
 
-# 凝视绞合常数 (W3 分配律草案)
-PAN_ERR_ENTER = 25.0         # 底盘修正触发阈(度)
-PAN_ERR_EXIT = 12.0          # 底盘修正退出阈(滞回)
-ERR_HOLD_S = 0.5             # 持续超阈多久才触发
+# A/B 测试总开关: False = 云台冻结(回到无云台的原版跟随行为)
+GAZE_ENABLED = True
+
+# 凝视绞合常数 (级联弧线式, arxiv 1909.06087 同款架构)
+BASE_ENTER = 20.0            # 云台偏超20° → 底盘弧线转向
+BASE_EXIT = 10.0             # 回到10°内 → 停止转向(滞回)
+BASE_HOLD_S = 0.4            # 持续超阈确认
+ARC_FAST = 100               # 弧线外侧轮速 (保持前进!)
+ARC_SLOW = 70                # 弧线内侧轮速
 ESC_BACK_S = 0.8             # 避障倒车时长(s)
 ESC_GIVEUP_S = 3.0           # 阻碍持续多久放弃绕行改等待(s)
 
@@ -199,8 +204,12 @@ def _gaze_loop():
 
 
 def _gaze_drive_loop():
-    """超声波避障线程 (级联式方案定稿后, 底盘转向完全归follow_controller原生逻辑,
-    本线程只保留避障: BLOCKED时倒车脱离, 持续受阻停车等待, 解除后归还底盘)"""
+    """底盘弧线转向+避障线程 (级联式, arxiv 1909.06087 同款):
+    云台指向=人的方位。云台偏 FORWARD 超20°持续0.4s → 底盘以弧线(前进+转向)
+    朝人侧转; 回到10°内停止转向(滞回)。转向期间 follow 暂停(避免打架),
+    弧线本身保持前进。超声波 BLOCKED 优先: 倒车脱离。"""
+    corr = False
+    corr_start = None
     esc_active = False
     esc_until = 0.0
     esc_start = 0.0
@@ -209,6 +218,9 @@ def _gaze_drive_loop():
         with obs_lock:
             obs_fresh = t - obs_state["t"] < 1.0
             blocked = obs_fresh and obs_state["blocked"]
+        pan = gaze.pan if gaze is not None else PAN_FORWARD_CMD
+        err = pan - PAN_FORWARD_CMD              # >0 = 云台指向物理右
+
         if blocked:
             if not esc_active:
                 esc_active = True
@@ -217,17 +229,48 @@ def _gaze_drive_loop():
                 if fc is not None:
                     fc.pause()
                 uart_send("STOP")
+                corr = False
+                corr_start = None
                 print("[drive] 避障: 倒车脱离")
             if t < esc_until:
-                uart_send("MOVE B 50")       # C3只禁前进, 倒车可走
+                uart_send("MOVE B 50")
             elif t - esc_start > ESC_GIVEUP_S:
-                uart_send("STOP")            # 持续受阻: 停车等待
-        elif esc_active:                     # 阻碍解除
+                uart_send("STOP")
+            time.sleep(0.1)
+            continue
+
+        if esc_active:
             esc_active = False
             uart_send("STOP")
             if fc is not None:
                 fc.resume()
             print("[drive] 阻碍解除, follow恢复")
+
+        # ---- 级联弧线转向: 云台偏哪边, 底盘往哪边弧线前进 ----
+        if not corr:
+            if abs(err) > BASE_ENTER:
+                if corr_start is None:
+                    corr_start = t
+                elif t - corr_start > BASE_HOLD_S:
+                    corr = True
+                    corr_start = None
+                    if fc is not None:
+                        fc.pause()               # 暂停follow的DIFF, 弧线接管
+                    print(f"[drive] 弧线转向: 云台偏{err:+.1f}°")
+            else:
+                corr_start = None
+        else:
+            if abs(err) < BASE_EXIT:
+                corr = False
+                if fc is not None:
+                    fc.resume()
+                print("[drive] 对准完成, follow恢复")
+            else:
+                # 云台偏右(err>0) → 底盘右转 → 左轮快右轮慢, 保持前进
+                if err > 0:
+                    uart_send(f"DIFF L{ARC_FAST} R{ARC_SLOW}")
+                else:
+                    uart_send(f"DIFF L{ARC_SLOW} R{ARC_FAST}")
         time.sleep(0.1)
     if fc is not None:
         fc.resume()
@@ -235,6 +278,9 @@ def _gaze_drive_loop():
 
 
 def _start_gaze():
+    if not GAZE_ENABLED:
+        print("[gaze] GAZE_ENABLED=False, 云台冻结(原版跟随模式)")
+        return
     threading.Thread(target=_gaze_loop, daemon=True).start()
     threading.Thread(target=_gaze_drive_loop, daemon=True).start()
 
