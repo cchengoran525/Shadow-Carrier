@@ -123,6 +123,8 @@ class FollowController:
                 self.profile = None  # 坏了就降级, 别卡死跟随
         best = None
         for det in dets:
+            if det.get("c") != "person":     # 只准锁人, 防止大物件(包/箱)抢锁
+                continue
             area = (det["x2"] - det["x1"]) * (det["y2"] - det["y1"])
             if best is None or area > best["area"]:
                 best = {"cx": (det["x1"] + det["x2"]) / 2,
