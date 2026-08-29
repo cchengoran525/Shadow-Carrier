@@ -7,7 +7,7 @@
   真数据: python3 hri_state.py --live
   假数据: python3 hri_state.py --fake fake_script.jsonl
 """
-import time, json, argparse, urllib.request
+import time, json, argparse, os, urllib.request
 
 # ========== 调参区 ==========
 OWNER_CONF_MIN = 0.5      # 与认主线 CONF_MIN 对齐
@@ -19,6 +19,7 @@ AREA_SLOW_RATE = 0.08     # 缓慢靠近下限, 区间内+持物 = RECEIVE
 HOLD_CLASSES = {"bottle", "cup", "wine glass", "banana", "apple", "orange",
                 "handbag", "backpack"}
 HOLD_IOU_MIN = 0.05       # 手持物与主人bbox的重叠占比门槛
+HOLD_CONF_MIN = 0.35      # 手持物最低置信度(过滤全画面噪声类)
 BEND_RATIO = 0.25         # bbox高度比慢基线低25%以上 = 弯腰姿态
 BASE_UP_ALPHA = 0.15      # 基线快速上抬(站起/走近立即刷新)
 BASE_DOWN_ALPHA = 0.005   # 基线极慢下降(蹲下弯腰不拖低基线)
@@ -82,7 +83,8 @@ class HRIStateMachine:
 
     def _held_object(self, dets, owner_box):
         for d in dets:
-            if d.get("label") in HOLD_CLASSES and "bbox" in d:
+            if (d.get("label") in HOLD_CLASSES and "bbox" in d
+                    and d.get("conf", 0) >= HOLD_CONF_MIN):
                 if iou_ratio(d["bbox"], owner_box) >= HOLD_IOU_MIN:
                     return d["label"], d.get("conf", 0)
         return None, 0.0
@@ -187,16 +189,44 @@ class HRIStateMachine:
 
 def load_dets_api(url="http://127.0.0.1:8080/api/detections"):
     with urllib.request.urlopen(url, timeout=1) as r:
-        return json.load(r)
+        raw = json.load(r).get("detections", [])
+    out = []
+    for d in raw:
+        try:
+            out.append({"label": d["c"], "conf": float(d.get("p", 0)),
+                        "bbox": [d["x1"], d["y1"], d["x2"], d["y2"]]})
+        except (KeyError, ValueError, TypeError):
+            continue
+    return out
 
 
 def run_live():
-    sm = HRIStateMachine()
+    logdir = os.path.expanduser("~/hri_logs")
+    os.makedirs(logdir, exist_ok=True)
+    logpath = os.path.join(logdir, time.strftime("hri_%Y%m%d_%H%M%S.jsonl"))
+    logfile = open(logpath, "a", buffering=1)
+    t0 = time.time()
+    print(f"[HRI] 黑匣子: {logpath}")
+    logfile.write(json.dumps({"t0": t0, "type": "session_start"}) + "\n")
+
+    def log_and_record(msg):
+        logfile.write(json.dumps(
+            {"t": round(time.time() - t0, 2), "type": "transition",
+             "msg": msg}, ensure_ascii=False) + "\n")
+        print(msg)
+
+    sm = HRIStateMachine(log_fn=log_and_record)
     while True:
         try:
             out = sm.feed(load_dets_api())
+            logfile.write(json.dumps(
+                {"t": round(time.time() - t0, 2), "type": "frame", **out},
+                ensure_ascii=False) + "\n")
             print(json.dumps(out, ensure_ascii=False))
         except Exception as e:
+            logfile.write(json.dumps(
+                {"t": round(time.time() - t0, 2),
+                 "type": "error", "err": str(e)}) + "\n")
             print(f"[HRI] api err: {e}")
         time.sleep(0.3)
 
