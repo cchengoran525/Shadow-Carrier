@@ -131,7 +131,11 @@ def _follow_loop():
     try:
         from follow_controller import FollowController
         fc = FollowController(uart_send)
-        fc.start()
+        if not fc.start():
+            # 机主原则: 认主失败拒绝跟随, 模式退回手动(凝视线随之退出)
+            print("[follow] 认主失败, 跟随未启动")
+            _stop_follow()
+            return
         while fc.running:
             fc.tick()
             time.sleep(0.4)

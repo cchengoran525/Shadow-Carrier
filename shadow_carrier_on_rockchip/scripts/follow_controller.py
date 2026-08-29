@@ -49,20 +49,33 @@ class FollowController:
         self.low_streak = 0      # 连续低分/丢失拍数(逃逸错锁用)
 
     def start(self):
+        """启动跟随。返回 False = 认主失败, 拒绝跟随(机主原则: 不跟陌生人)"""
         self.running = True; self.lost = 0
         self.last_turn_dir = None; self.backing = False
-        # 快速认主: 抓不到模板则降级为"跟最大"
+        # 快速认主: 失败重试一次; 仍失败 → 拒绝跟随(宁笨勿邪的完整含义:
+        # 没有可信模板就不跟任何人, 降级跟最大=跟随机路人是被禁止的)
         try:
             import owner_id
             p = owner_id.enroll(log=print)
+            if p is None:
+                print("[follow] 认主失败, 重试一次...")
+                p = owner_id.enroll(log=print)
             self.profile = p
-            print(f"[follow] owner lock {'OK' if p else 'FAIL -> largest-fallback'}")
-            if p is not None:
-                owner_id.start_ble_heartbeat(log=print)  # 手环在场心跳(慢速兜底)
         except Exception as e:
             self.profile = None
-            print(f"[follow] owner module error ({e}) -> largest-fallback")
+            print(f"[follow] owner module error ({e})")
+        if self.profile is None:
+            self.running = False
+            self.send_cmd("STOP")
+            print("[follow] 认主失败x2 → 拒绝进入跟随 (不跟陌生人)")
+            return False
+        try:
+            import owner_id
+            owner_id.start_ble_heartbeat(log=print)  # 在场心跳(BLE+热点双路)
+        except Exception:
+            pass
         print("[follow] started")
+        return True
 
     def stop(self):
         self.running = False; self.send_cmd("STOP")
@@ -78,7 +91,8 @@ class FollowController:
         print("[follow] resumed")
 
     def _fetch_person(self):
-        """认主版选人: 有主人模板按 颜色+体态 打分, 否则降级跟最大"""
+        """认主版选人(机主原则2026-08-28): 只跟模板匹配的主人。
+        失配/异常/无模板一律返回None→丢失流程, 全链路不存在"跟路人"路径"""
         try:
             import owner_id
             dets = owner_id._fetch_detections()  # 已做类型防御
@@ -106,17 +120,8 @@ class FollowController:
                             self.tracker.reset()
                             self.low_streak = 0
                             print("[follow] re-acquire: tracker reset")
-                    # 机主原则(2026-08-28): 模板不匹配 ≠ 没有人。
-                    # YOLO person 是唯一先验, 模板只是偏好层 → 降级最大person, 不停车
-                    best = None
-                    for det in dets:
-                        area = (det["x2"] - det["x1"]) * (det["y2"] - det["y1"])
-                        if best is None or area > best["area"]:
-                            best = {"cx": (det["x1"] + det["x2"]) / 2,
-                                    "cy": (det["y1"] + det["y2"]) / 2,
-                                    "h": det["y2"] - det["y1"]}
-                    if best is not None:
-                        return best
+                    # 机主原则(2026-08-28 定稿): 模板失配 = 画面里没有可信的主人
+                    # → 返回None走丢失流程(wait_owner/lost_stop), 绝不转投路人
                     return None
                 cx = (box["x1"] + box["x2"]) / 2
                 cy = (box["y1"] + box["y2"]) / 2
@@ -134,17 +139,10 @@ class FollowController:
                 return {"cx": cx, "h": box["y2"] - box["y1"], "cy": cy}
             except Exception as e:
                 print(f"[follow] owner select error: {e}")
-                self.profile = None  # 坏了就降级, 别卡死跟随
-        best = None
-        for det in dets:
-            if det.get("c") != "person":     # 只准锁人, 防止大物件(包/箱)抢锁
-                continue
-            area = (det["x2"] - det["x1"]) * (det["y2"] - det["y1"])
-            if best is None or area > best["area"]:
-                best = {"cx": (det["x1"] + det["x2"]) / 2,
-                        "h": det["y2"] - det["y1"],
-                        "cy": (det["y1"] + det["y2"]) / 2, "area": area}
-        return best
+                # 机主原则: 模块异常时同样不降级跟陌生人, 走丢失流程
+                self.profile = None
+                return None
+        return None
 
     def _diff(self, left, right):
         """发送差速命令"""

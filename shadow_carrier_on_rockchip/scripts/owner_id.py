@@ -19,7 +19,10 @@ W_COLOR = 0.7
 W_ASPECT = 0.3
 SCORE_MIN = 0.40         # 低于此分视为不是主人
 SAT_LOW = 40.0           # 模板平均饱和度低于此值 → 颜色权重自动降档
-ENROLL_SAT_MIN = 55.0    # 注册门限(严于SAT_LOW): 低信息模板会锁向灰色杂物, 拒绝建卡
+# 注: 不设饱和度/宽高比采样质量门。
+# - "跟错桌子"根因是云台坏机位的半身采样, 归[云台]线治理;
+# - 体态比(aspect)的解释权归[HRI](姿态判断), 认主端只读原始值, 不定义语义;
+# - 坏模板的后果已被L2兜住(失配→wait_owner/lost_stop), 无需前置拒绝。
 CONF_MIN = 0.50          # person置信度地板(YOLO对家具的低置信度误报在此被拦)
 MIN_BOX_H = 70           # 最小框高px(过滤远处小误检)
 
@@ -152,7 +155,11 @@ class TargetTracker:
 
 
 def _fetch_detections():
-    """拉person检测列表。yolo_daemon偶发把坐标序列化成字符串 → 这里统一强转float"""
+    """拉person检测列表。yolo_daemon偶发把坐标序列化成字符串 → 这里统一强转float
+
+    ⚠️ 机主原则第0层: YOLO person 是唯一候选先决条件。
+    本函数是全链路唯一的候选入口, 非person永远进不了打分池;
+    模板/跟踪器/在场信号都只是在此之上的偏好与状态层, 任何改动不得放宽此处。"""
     try:
         req = urllib.request.Request(DET_API, headers={"User-Agent": "owner"})
         d = json.loads(urllib.request.urlopen(req, timeout=1.0).read())
@@ -273,12 +280,6 @@ def enroll(log=print):
     if len(hists) < 4:
         return None
     sat = float(np.mean(sats)) if sats else None
-    # 低饱和模板底线 (2026-08-28 桌子事故): 灰白模板会匹配一切灰色杂物,
-    # 锁得越准错得越远 → 拒绝注册, 降级"最大person"跟随 (宁笨勿邪)
-    if sat is not None and sat < ENROLL_SAT_MIN:
-        log(f"[owner] enroll 拒绝: sat_energy={sat:.0f} < {ENROLL_SAT_MIN:.0f} "
-            "(低信息模板会锁向灰色杂物) → 降级最大person跟随")
-        return None
     mean_hist = np.mean(np.stack(hists), axis=0)
     cv2.normalize(mean_hist, mean_hist, 0, 1, cv2.NORM_MINMAX)
     log(f"[owner] template sat_energy={sat:.0f}")
