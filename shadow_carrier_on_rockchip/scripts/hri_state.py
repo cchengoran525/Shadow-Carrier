@@ -30,6 +30,9 @@ BEND_REARM_FRAMES = 6     # 弯腰结束后需连续N帧直立才重新武装
 BEND_CLEAR_RATIO = 0.10   # 压低超过10%即视为仍在弯腰序列(施密特下阈)
 DWELL_S = 1.0             # 状态最小驻留, 防抖动
 EGO_QUIET_S = 1.0         # 车停止后需安静这么久才开始采信bbox
+HIDE_AFTER_S = 20.0       # WAIT中主人持续静止超过此值 -> HIDE(找安全点)
+GRID_JSON = os.path.expanduser("~/world_lab/fusion/grid.json")
+OWNER_LOST_ABORT_S = 2.0  # HIDE/扫掠中主人消失超过此值 -> 中断扫掠归位
 # ============================
 
 STATES = ("FOLLOW", "WAIT", "HIDE", "RECEIVE", "YIELD")
@@ -41,6 +44,28 @@ def iou_ratio(inner, outer):
     iw, ih = max(0, ix2 - ix1), max(0, iy2 - iy1)
     a_in = max(1e-6, (inner[2] - inner[0]) * (inner[3] - inner[1]))
     return (iw * ih) / a_in
+
+
+def pick_safe_spot(grid_path=GRID_JSON):
+    """消费 [世界] grid.json v1: 门优先, 其次最靠正前的自由方向"""
+    try:
+        with open(grid_path) as f:
+            g = json.load(f)
+    except (OSError, ValueError):
+        return None, "grid不可读"
+    age = time.time() - g.get("ts", 0)
+    if age > 300:
+        return None, f"grid过期{age:.0f}s"
+    doors = [o for o in g.get("objects", [])
+             if "door" in o.get("cls", "").lower()]
+    if doors:
+        d = min(doors, key=lambda o: abs(o.get("bearing_deg", 180)))
+        return d["bearing_deg"], f"door:{d['cls']}@{d['dist_m']:.1f}m"
+    free = g.get("free_directions_deg") or []
+    if free:
+        b = min(free, key=lambda x: abs(x))
+        return b, "free"
+    return None, "无自由方向"
 
 
 class HRIStateMachine:
@@ -58,11 +83,16 @@ class HRIStateMachine:
         self.receive_cooldown_until = 0.0
         self.bend_armed = True
         self.upright_run = 0
+        self.hide_bearing = None
+        self.owner_last_seen = time.time()
 
     # ---- 内部工具 ----
     def _set_state(self, new, reason=""):
         if new == self.state:
             return
+        if new == "HIDE":
+            self.hide_bearing, spot_why = pick_safe_spot()
+            reason += f" | 安全点={self.hide_bearing}({spot_why})"
         self.log(f"[HRI] {self.state} -> {new} ({reason})")
         self.state = new
         self.state_since = time.time()
@@ -99,7 +129,11 @@ class HRIStateMachine:
         owner = self._pick_owner(dets, owner_score_fn)
         act = "NONE"
         if owner is None:
+            if (self.state == "HIDE"
+                    and time.time() - self.owner_last_seen > OWNER_LOST_ABORT_S):
+                self._set_state("FOLLOW", "主人消失, 扫掠中断")
             return {"state": self.state, "action": "NONE"}
+        self.owner_last_seen = time.time()
 
         x1, y1, x2, y2 = owner["bbox"]
         cx, cy, area = (x1 + x2) / 2, (y1 + y2) / 2, max(1.0, (x2 - x1) * (y2 - y1))
@@ -140,6 +174,11 @@ class HRIStateMachine:
             self.base_h += BASE_DOWN_ALPHA * (self.sm_h - self.base_h)
         self._last_t = now
 
+        if evidence_ok and disp < STATIC_DISP_PX:
+            self.static_since = self.static_since or now
+        elif disp >= STATIC_DISP_PX:
+            self.static_since = None
+
         s = self.state
         approaching_fast = evidence_ok and rate > AREA_FAST_RATE
         near = self.sm_h is not None and self.sm_h >= NEAR_H_MIN
@@ -149,11 +188,8 @@ class HRIStateMachine:
             (held and AREA_SLOW_RATE < rate <= AREA_FAST_RATE) or bend_go)
         if s == "FOLLOW":
             if evidence_ok and disp < STATIC_DISP_PX:
-                self.static_since = self.static_since or now
                 if now - self.static_since >= STATIC_NEED_S and self._dwell_ok():
                     self._set_state("WAIT", f"主人静止{STATIC_NEED_S}s")
-            elif disp >= STATIC_DISP_PX:
-                self.static_since = None
         elif s in ("WAIT", "HIDE"):
             if approaching_fast and self._dwell_ok():
                 self._set_state("YIELD", f"快速靠近 rate={rate:.2f}")
@@ -164,7 +200,13 @@ class HRIStateMachine:
                 why = "弯腰姿态" if (bend_go and not held) else f"持物靠近 {held}:{held_conf:.2f}"
                 self._set_state("RECEIVE", why)
             elif dcx > WAKE_DISP_PX and not held and not bend and self._dwell_ok():
-                self._set_state("FOLLOW" if s == "WAIT" else s, "主人恢复移动")
+                self._set_state("FOLLOW", "主人恢复移动")
+            elif (s == "WAIT" and self.static_since
+                  and now - self.static_since >= HIDE_AFTER_S
+                  and self._dwell_ok()):
+                self._set_state("HIDE", f"主人持续静止{HIDE_AFTER_S:.0f}s")
+            elif s == "HIDE":
+                act = f"GOTO_SAFE {self.hide_bearing:.0f}" if self.hide_bearing is not None else "GOTO_SAFE"
         elif s == "YIELD":
             if rate <= AREA_FAST_RATE and self._dwell_ok():
                 self._set_state("WAIT", "靠近结束")
@@ -179,9 +221,6 @@ class HRIStateMachine:
                 self._set_state("WAIT", "逼近停滞, 疑似误触发")
             else:
                 act = "APPROACH"
-        elif s == "HIDE":
-            if disp > WAKE_DISP_PX:
-                self._set_state("FOLLOW", "主人来找")
         self.send_cmd(act)
         return {"state": self.state, "action": act, "disp": round(disp, 1),
                 "rate": round(rate, 3), "held": held, "bend": bend}
