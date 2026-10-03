@@ -1,0 +1,55 @@
+{
+  "_doc": "HRI 参数单一来源。几何无关: 优先用物理量(metric), 标定缺失时降级 pixel, 比值类天然免疫。换相机/高度 -> 只改 camera 段或重跑 auto_calib_pose.py。",
+  "camera": {
+    "focal_px": 508.0,
+    "person_height_m": 1.65,
+    "frame_h": 480,
+    "clip_ratio": 0.9,
+    "shoulder_width_m": 0.45,
+    "_src": "fx=508 来自 [云台] 内参互证(2026-08-27); 高度为成人默认, 可按主人实测覆盖"
+  },
+  "metric": {
+    "static_disp_m": 0.08,
+    "wake_disp_m": 0.40,
+    "near_dist_m": 1.2,
+    "approach_fast_mps": 0.8,
+    "approach_slow_mps": 0.15,
+    "recede_mps": 0.05
+  },
+  "pixel": {
+    "static_disp_px": 15,
+    "wake_disp_px": 40,
+    "near_h_px": 300,
+    "approach_fast_rate": 1.2,
+    "approach_slow_rate": 0.08
+  },
+  "ratios": {
+    "bend": 0.25,
+    "bend_clear": 0.10,
+    "base_up_alpha": 0.15,
+    "base_down_alpha": 0.005
+  },
+  "timing": {
+    "static_need_s": 5.0,
+    "dwell_s": 1.0,
+    "ego_quiet_s": 1.0,
+    "hide_after_s": 20.0,
+    "receive_timeout_s": 2.0,
+    "receive_cooldown_s": 6.0,
+    "bend_rearm_frames": 6,
+    "owner_lost_abort_s": 2.0
+  },
+  "classes": {
+    "owner_conf_min": 0.5,
+    "hold_classes": ["bottle", "cup", "wine glass", "banana", "apple", "orange", "handbag", "backpack"],
+    "hold_iou_min": 0.05,
+    "hold_conf_min": 0.35,
+    "hold_any_class": true,
+    "hold_any_min_conf": 0.4,
+    "hold_any_top_frac": 0.6,
+    "hold_any_max_area_ratio": 0.6
+  },
+  "paths": {
+    "grid_json": "~/world_lab/fusion/grid.json"
+  }
+}
