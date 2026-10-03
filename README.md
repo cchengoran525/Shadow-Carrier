@@ -1,3 +1,5 @@
+![Shadow Carrier](docs/banner_v4.png)
+
 # Shadow Carrier 逛街搭子
  
 > *"不知道啥时候来的，我顺手把外套挂上去了。"*
