@@ -27,6 +27,8 @@ PAN_FORWARD = 90.58        # 光轴正前方指令角
 PAN_SIGN = -1              # +1=指令增大向左; -1=指令增大向右(PAN_INVERT=true)
 KEEP_EDGE_DEG = 24.0       # 救援阈值: 人到画面24°(接近出画)才出手 (12°太敏感会持续扰动follow)
 KEEP_RATE = 10.0           # 救援缓转速度 (度/s)
+PAN_MIN = 15.0             # 舵机指令限位(防顶死机械限位→堵转跳齿)
+PAN_MAX = 165.0
 HOLD_TIMEOUT = 1.5
 SEARCH_TIMEOUT = 4.0
 SCAN_AMP = 45.0            # 定向扫描最大扩展角(度)
@@ -37,6 +39,11 @@ CONF_MIN = 0.5
 
 def _wrap180(a):
     return (a + 180.0) % 360.0 - 180.0
+
+
+def _clamp_pan(a):
+    """舵机指令角限幅: 防止顶到机械限位造成堵转/跳齿(咔咔)"""
+    return max(PAN_MIN, min(PAN_MAX, a))
 
 
 def u_to_bearing(u_px):
@@ -66,7 +73,7 @@ class GazeController:
             if abs(bearing) > KEEP_EDGE_DEG:
                 self.mode = "KEEP_TURN"
                 # 向边缘方向缓转看住: bearing正(左) × PAN_SIGN(-1) → pan减小
-                self.pan = _wrap180(
+                self.pan = _clamp_pan(
                     self.pan + PAN_SIGN * (bearing / abs(bearing)) * KEEP_RATE * 0.1)
             else:
                 self.mode = "KEEP"
@@ -84,12 +91,12 @@ class GazeController:
             # 定向扩展扫描: 朝人消失的那一侧越扫越远 (10°→45°), 不再无方向正弦摆
             sweep_dir = PAN_SIGN * self.last_exit_sign
             offset = min(SCAN_RATE * (loss - HOLD_TIMEOUT), SCAN_AMP)
-            self.pan = _wrap180(self.pan_last_seen + sweep_dir * offset)
+            self.pan = _clamp_pan(self.pan_last_seen + sweep_dir * offset)
         else:
             self.mode = "CENTER"
-            delta = _wrap180(PAN_FORWARD - self.pan)
+            delta = PAN_FORWARD - self.pan
             if abs(delta) > 1.0:
-                self.pan = _wrap180(self.pan + max(-1.0, min(1.0, delta)))
+                self.pan = _clamp_pan(self.pan + max(-1.0, min(1.0, delta)))
         self._emit(t)
         return self._out
 

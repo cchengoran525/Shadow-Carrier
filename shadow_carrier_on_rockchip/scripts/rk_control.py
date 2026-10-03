@@ -13,6 +13,8 @@ PAN_RANGE = 180.0
 TILT_RANGE = 180.0
 PAN_CENTER = 90.0
 TILT_CENTER = 90.0
+PAN_MIN, PAN_MAX = 15.0, 165.0     # 舵机指令限位(防顶死机械限位→堵转跳齿, 2026-10-03事故)
+TILT_MIN, TILT_MAX = 10.0, 170.0
 
 # 凝视控制器几何常数 (state/calib/params.py 三方互证值)
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "state"))
@@ -22,6 +24,9 @@ except Exception:
     TILT_LEVEL_CMD = 112.0    # 兜底: 标定文件缺失时的实测值
     PAN_FORWARD_CMD = 90.58
 CONF_MIN = 0.5               # 与[认主]对齐
+
+# 最近一次云台指令 (供步进斜坡的起步点; 所有 pan/tilt 写入都经 gimbal_send 更新)
+_last_pose = {"pan": PAN_FORWARD_CMD, "tilt": TILT_LEVEL_CMD}
 
 # A/B 测试总开关: False = 云台冻结(回到无云台的原版跟随行为)
 GAZE_ENABLED = True
@@ -84,13 +89,16 @@ def uart_send(cmd):
         except: return False
 
 def gimbal_send(body):
-    """body: {"pan":deg} 和/或 {"tilt":deg}, 绝对角度"""
+    """body: {"pan":deg} 和/或 {"tilt":deg}, 绝对角度。
+    带指令限位(防顶死) + 记录最近指令(供斜坡起步)"""
     cmds = []
     if 'pan' in body:
-        p = max(0.0, min(PAN_RANGE, float(body['pan'])))
+        p = max(PAN_MIN, min(PAN_MAX, float(body['pan'])))
+        _last_pose["pan"] = p
         cmds.append(f"PAN {p:.1f}")
     if 'tilt' in body:
-        t = max(0.0, min(TILT_RANGE, float(body['tilt'])))
+        t = max(TILT_MIN, min(TILT_MAX, float(body['tilt'])))
+        _last_pose["tilt"] = t
         cmds.append(f"TLT {t:.1f}")
     if not cmds:
         return False
@@ -98,6 +106,33 @@ def gimbal_send(body):
     for c in cmds:
         ok = uart_send(c) and ok
     return ok
+
+
+def gimbal_ramp_to(pan, tilt, step=5.0, interval=0.06):
+    """步进斜坡: 从最近指令位置以小步走向目标, 避免大跳变电流冲击/[舵机堵转跳齿]。
+    2026-10-03 事故: 归中直跳导致堵转+咔咔+C3掉线; 全链路改斜坡"""
+    pan = max(PAN_MIN, min(PAN_MAX, float(pan)))
+    tilt = max(TILT_MIN, min(TILT_MAX, float(tilt)))
+
+    def _run():
+        for _ in range(80):                      # 上限防死循环 (~4.8s)
+            dp = pan - _last_pose["pan"]
+            dt = tilt - _last_pose["tilt"]
+            if abs(dp) < 0.5 and abs(dt) < 0.5:
+                break
+            gimbal_send({
+                "pan": _last_pose["pan"] + max(-step, min(step, dp)),
+                "tilt": _last_pose["tilt"] + max(-step, min(step, dt)),
+            })
+            time.sleep(interval)
+
+    threading.Thread(target=_run, daemon=True).start()
+    return True
+
+
+def gimbal_center_ramp():
+    """步进归中 (替代原直跳)"""
+    return gimbal_ramp_to(PAN_CENTER, TILT_CENTER)
 
 def uart_reader():
     global uart_fd
@@ -181,8 +216,7 @@ def _gaze_loop():
     from calib.params import TILT_LEVEL_CMD, PAN_FORWARD_CMD
     with gaze_lock:
         gaze = GazeController(PAN_FORWARD_CMD)
-    uart_send(f"PAN {PAN_FORWARD_CMD:.1f}")
-    uart_send(f"TLT {TILT_LEVEL_CMD:.1f}")
+    gimbal_ramp_to(PAN_FORWARD_CMD, TILT_LEVEL_CMD)   # 步进入工作位(防跳变冲击舵机)
     t = time.monotonic()
     while _get_mode() == "follow":
         dets = _fetch_detections()
@@ -190,7 +224,7 @@ def _gaze_loop():
             t = time.monotonic()
             u = _pick_owner_u(dets)
             out = gaze.feed(t, u)
-            uart_send(f"PAN {out['pan_deg']:.1f}")
+            gimbal_send({"pan": out["pan_deg"]})
             # 世界方位角 = 光学偏角 + 云台已补偿量
             with owner_bearing_lock:
                 if u is not None:
@@ -199,12 +233,11 @@ def _gaze_loop():
                     owner_bearing["theta"] = None
         time.sleep(0.1)
 
-    # 退出跟随: 云台回中
+    # 退出跟随: 云台步进回中
     with gaze_lock:
         gaze = None
-    uart_send(f"PAN {PAN_CENTER:.1f}")
-    uart_send(f"TLT {TILT_CENTER:.1f}")
-    print("[gaze] 停止, 已回中")
+    gimbal_center_ramp()
+    print("[gaze] 停止, 已步进回中")
 
 
 def _gaze_drive_loop():
@@ -342,7 +375,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(400); self._text('BAD')
             return
         if self.path == '/gimbal/center':
-            ok = gimbal_send({"pan": PAN_CENTER, "tilt": TILT_CENTER})
+            ok = gimbal_center_ramp()
             self._text("OK" if ok else "FAIL")
             return
         r = {'/forward':'MOVE F 180','/back':'MOVE B 180','/left':'MOVE L 150','/right':'MOVE R 150','/stop':'STOP'}
