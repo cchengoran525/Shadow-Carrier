@@ -218,8 +218,9 @@ class ShadowCarrierSimulation:
             print(f"[SIM] grid snapshot unavailable: {error}")
 
     def _geom_detections(self):
-        """几何真值检测: 由 3D 位置 + 针孔模型直接合成框(自动测试用, 不依赖 Webots 识别)"""
-        rx, ry, rz = self.self_node.getPosition()
+        """几何真值检测: 由 3D 位置 + 针孔模型合成框。
+        相机位置用假定原点(观察模式车应停在原点), 不读实际车位置——物理漂移不影响。"""
+        rz = 0.0
         out = []
         for label, node, w_m, h_m in (
                 ("person", self.owner_node, self.PERSON_W, self.PERSON_H),
@@ -536,11 +537,6 @@ class ShadowCarrierSimulation:
                 key = self.keyboard.getKey()
                 if key > 0:
                     self._process_key(key)
-
-            if self.autotest and not self.autotest_motion:
-                # 观察模式: 物理漂移会把车推到主人身上, 每步钉回原点
-                self.position_field.setSFVec3f([0, 0.06, 0])
-                self.rotation_field.setSFRotation([0, 0, 1, 0])
 
             detections = self._detections()
             if self.geom_det and not detections and not self._geom_warned:
