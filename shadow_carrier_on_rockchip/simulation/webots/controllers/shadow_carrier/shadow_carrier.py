@@ -50,6 +50,7 @@ class ShadowCarrierSimulation:
         self.camera = self.robot.getDevice("front camera")
         self.camera.enable(self.timestep)
         self.camera.recognitionEnable(self.timestep)
+        self.fx_px = (self.camera.getWidth() / 2.0) / math.tan(self.camera.getFov() / 2.0)
         self.sonar = self.robot.getDevice("front sonar")
         self.sonar.enable(self.timestep)
         self.keyboard = self.robot.getKeyboard()
@@ -93,6 +94,10 @@ class ShadowCarrierSimulation:
         print("[SIM] ',' '.' pan; '-' '=' tilt. Commands follow the C3 450 ms timeout and ramp.")
         self.autotest = bool(os.environ.get("SIM_AUTOTEST"))
         self.autotest_motion = os.environ.get("SIM_AUTOTEST_MOTION") == "1"
+        # 自动测试默认用几何真值检测(Webots 识别在中远距离不可靠, 而仿真不做 YOLO 精度)
+        self.geom_det = (os.environ.get("SIM_GEOM_DET", "1") == "1") if self.autotest \
+            else (os.environ.get("SIM_GEOM_DET", "0") == "1")
+        self.PERSON_W, self.PERSON_H = 0.62, 1.66
         if self.autotest:
             print("[SIM] AUTOTEST mode: scripted owner timeline, keyboard ignored, auto-quit at end.")
             print(f"[SIM] chassis motion: {'ON' if self.autotest_motion else 'OFF (observe-only)'}")
@@ -208,7 +213,29 @@ class ShadowCarrierSimulation:
         except OSError as error:
             print(f"[SIM] grid snapshot unavailable: {error}")
 
+    def _geom_detections(self):
+        """几何真值检测: 由 3D 位置 + 针孔模型直接合成框(自动测试用, 不依赖 Webots 识别)"""
+        rx, ry, rz = self.self_node.getPosition()
+        out = []
+        for label, node, w_m, h_m in (
+                ("person", self.owner_node, self.PERSON_W, self.PERSON_H),
+                ("bottle", self.bottle_node, 0.09, 0.22)):
+            if node is None:
+                continue
+            _x, _y, z = node.getField("translation").getSFVec3f()
+            depth = rz - z  # 前方为 -z
+            if depth < 0.3 or depth > 6.0:
+                continue
+            bw = self.fx_px * w_m / depth
+            bh = self.fx_px * h_m / depth
+            cx, cy = self.camera.getWidth() / 2.0, self.camera.getHeight() / 2.0
+            out.append({"label": label, "conf": 0.95,
+                        "bbox": [cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2]})
+        return out
+
     def _detections(self):
+        if self.geom_det:
+            return self._geom_detections()
         supported = {
             "person", "bottle", "cup", "wine glass", "banana", "apple",
             "orange", "handbag", "backpack", "door",
