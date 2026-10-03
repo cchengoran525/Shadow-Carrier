@@ -24,3 +24,6 @@ EXCHANGE.md
 # GraphFlow local cache / tool output
 .graphflow-cache/
 graphflow-out/
+
+# Webots sim black box
+shadow_carrier_on_rockchip/simulation/webots/controllers/shadow_carrier/sim_session.jsonl

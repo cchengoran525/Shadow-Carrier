@@ -80,6 +80,7 @@ class ShadowCarrierSimulation:
         self.last_blocked = False
 
         self.grid_path = Path(tempfile.gettempdir()) / "shadow_carrier_webots_grid.json"
+        self._log_open()
         self.machine = self._new_state_machine()
         self.follower = FollowController(
             self._execute_ascii,
@@ -98,9 +99,27 @@ class ShadowCarrierSimulation:
             self.camera.getFov() / 2.0)
         return hri_state.HRIStateMachine(
             send_cmd_fn=self._on_hri_action,
-            log_fn=print,
+            log_fn=self._hri_log,
             params=params,
         )
+
+    def _log_open(self):
+        path = Path(__file__).resolve().parent / "sim_session.jsonl"
+        self.log_file = open(path, "a", buffering=1)
+        self.log_t0 = time.monotonic()
+        self.log_file.write(json.dumps({"type": "session_start",
+                                        "t0": time.time()}) + "\n")
+        print(f"[SIM] 黑匣子: {path}")
+
+    def _log(self, record):
+        if not getattr(self, "log_file", None):
+            return
+        record["t"] = round(time.monotonic() - self.log_t0, 2)
+        self.log_file.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    def _hri_log(self, msg):
+        print(msg)
+        self._log({"type": "transition", "msg": msg})
 
     def _yaw(self):
         rotation = self.self_node.getOrientation()
@@ -434,6 +453,9 @@ class ShadowCarrierSimulation:
                             self.follower.tick()
                         elif out["action"].startswith("GOTO_SAFE"):
                             self._drive_to_safe_target()
+                    self._log({"type": "frame", **out,
+                               "dets": [d["label"] for d in detections],
+                               "sonar_cm": round(float(self.sonar.getValue()), 1)})
                 self.last_hri_tick = now
 
             self._ramp_motors(now, blocked)
