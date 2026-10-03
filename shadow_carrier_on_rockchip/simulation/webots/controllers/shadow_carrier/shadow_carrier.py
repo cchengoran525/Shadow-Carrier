@@ -516,6 +516,9 @@ class ShadowCarrierSimulation:
                             self._drive_to_safe_target()
                     self._log({"type": "frame", **out,
                                "dets": [d["label"] for d in detections],
+                               "n_rec": len(self.camera.getRecognitionObjects()),
+                               "owner": [round(v, 2) for v in self.owner_translation.getSFVec3f()],
+                               "rot": [round(v, 2) for v in self.self_node.getOrientation()],
                                "sonar_cm": round(float(self.sonar.getValue()), 1)})
                 self.last_hri_tick = now
 
