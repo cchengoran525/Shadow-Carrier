@@ -92,8 +92,10 @@ class ShadowCarrierSimulation:
         print("[SIM] WASD drive, Space stop; I/K/J/L move owner; O offer object; H hide owner; R reset.")
         print("[SIM] ',' '.' pan; '-' '=' tilt. Commands follow the C3 450 ms timeout and ramp.")
         self.autotest = bool(os.environ.get("SIM_AUTOTEST"))
+        self.autotest_motion = os.environ.get("SIM_AUTOTEST_MOTION") == "1"
         if self.autotest:
             print("[SIM] AUTOTEST mode: scripted owner timeline, keyboard ignored, auto-quit at end.")
+            print(f"[SIM] chassis motion: {'ON' if self.autotest_motion else 'OFF (observe-only)'}")
 
     def _set_person(self, z):
         self.owner_node.getField("translation").setSFVec3f([0, 0, z])
@@ -304,6 +306,12 @@ class ShadowCarrierSimulation:
     def _on_hri_action(self, action):
         if time.monotonic() < self.manual_until:
             return
+        if self.autotest and not self.autotest_motion:
+            # 观察模式: 只记录 HRI 意图, 不驱动底盘(否则恒速跟随会顶住主人)
+            if action != self.hri_action:
+                self.hri_action = action
+                self._log({"type": "hri_action", "action": action})
+            return
         if action == self.hri_action:
             if action == "BACK_OFF":
                 self._execute_ascii("MOVE B 60")
@@ -509,7 +517,7 @@ class ShadowCarrierSimulation:
                         detections,
                         robot_moving=(abs(self.left_current) + abs(self.right_current) > 5),
                     )
-                    if now >= self.manual_until:
+                    if now >= self.manual_until and not (self.autotest and not self.autotest_motion):
                         if out["action"] == "NONE" and self.machine.state == "FOLLOW":
                             self.follower.tick()
                         elif out["action"].startswith("GOTO_SAFE"):
