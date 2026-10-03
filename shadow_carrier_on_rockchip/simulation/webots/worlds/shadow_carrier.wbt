@@ -1,7 +1,7 @@
 #VRML_SIM R2025a utf8
 
 WorldInfo {
-  basicTimeStep 32
+  basicTimeStep 8
   gravity 9.81
   contactProperties [
     ContactProperties {
@@ -30,10 +30,10 @@ DEF FLOOR Solid {
   children [
     Shape {
       appearance PBRAppearance { baseColor 0.78 0.81 0.79 roughness 0.92 }
-      geometry Box { size 8 0.12 8 }
+      geometry Box { size 16 0.12 16 }
     }
   ]
-  boundingObject Box { size 8 0.12 8 }
+  boundingObject Box { size 16 0.12 16 }
 }
 
 DEF BACK_WALL Solid {

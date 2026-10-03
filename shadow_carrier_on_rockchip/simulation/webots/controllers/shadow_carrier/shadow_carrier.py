@@ -556,7 +556,7 @@ class ShadowCarrierSimulation:
                         detections,
                         robot_moving=(abs(self.left_current) + abs(self.right_current) > 5),
                     )
-                    if now >= self.manual_until and not (self.autotest and not self.autotest_motion):
+                    if now >= self.manual_until and not self.autotest:
                         if out["action"] == "NONE" and self.machine.state == "FOLLOW":
                             self.follower.tick()
                         elif out["action"].startswith("GOTO_SAFE"):
@@ -566,6 +566,7 @@ class ShadowCarrierSimulation:
                                "boxes": {d["label"]: [int(v) for v in d["bbox"]] for d in detections},
                                "n_rec": len(self.camera.getRecognitionObjects()),
                                "owner": [round(v, 2) for v in self.owner_translation.getSFVec3f()],
+                               "robot": [round(v, 2) for v in self.self_node.getPosition()],
                                "sonar_cm": round(float(self.sonar.getValue()), 1)})
                 self.last_hri_tick = now
 
