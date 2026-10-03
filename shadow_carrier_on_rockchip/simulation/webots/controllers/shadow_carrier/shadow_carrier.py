@@ -2,6 +2,7 @@
 """Webots adapter for the current C3 ASCII protocol and RK-side HRI logic."""
 import json
 import math
+import os
 import re
 import sys
 import tempfile
@@ -90,6 +91,48 @@ class ShadowCarrierSimulation:
         print("[SIM] Webots adapter ready. HRI is on; use T to toggle it.")
         print("[SIM] WASD drive, Space stop; I/K/J/L move owner; O offer object; H hide owner; R reset.")
         print("[SIM] ',' '.' pan; '-' '=' tilt. Commands follow the C3 450 ms timeout and ramp.")
+        self.autotest = bool(os.environ.get("SIM_AUTOTEST"))
+        if self.autotest:
+            print("[SIM] AUTOTEST mode: scripted owner timeline, keyboard ignored, auto-quit at end.")
+
+    def _set_person(self, z):
+        self.owner_node.getField("translation").setSFVec3f([0, 0, z])
+
+    def _set_object(self, offered, z):
+        if offered:
+            self.bottle_node.getField("translation").setSFVec3f([0.30, 0.95, z])
+        else:
+            self.bottle_node.getField("translation").setSFVec3f([100, 0.9, 100])
+
+    def _autotest_update(self, t):
+        """脚本驱动: 静止->缓慢靠近(持物)->后退->快冲->静止(HIDE)->持物靠近->消失. 返回 True 结束."""
+        if t < 16:            # 静止 2.5m: FOLLOW -> WAIT(5s)
+            self._set_person(-2.5); self._set_object(False, 0)
+        elif t < 24:          # 持物缓慢靠近: RECEIVE
+            z = -2.5 + (t - 16) / 8.0 * 1.3
+            self._set_person(z); self._set_object(True, z)
+        elif t < 30:          # 后退: RECEIVE -> WAIT
+            z = -1.2 - (t - 24) / 6.0 * 1.0
+            self._set_person(z); self._set_object(True, z)
+        elif t < 31.5:        # 快冲(~0.93m/s): YIELD
+            z = -2.2 + (t - 30) / 1.5 * 1.4
+            self._set_person(z); self._set_object(False, 0)
+        elif t < 40:          # 停在近处
+            self._set_person(-0.8); self._set_object(False, 0)
+        elif t < 42:          # 快速退开
+            z = -0.8 - (t - 40) / 2.0 * 1.7
+            self._set_person(z); self._set_object(False, 0)
+        elif t < 68:          # 静止 -> WAIT -> HIDE(20s) -> GOTO_SAFE
+            self._set_person(-2.5); self._set_object(False, 0)
+        elif t < 76:          # 持物缓慢靠近: RECEIVE(持物)
+            z = -2.5 + (t - 68) / 8.0 * 1.3
+            self._set_person(z); self._set_object(True, z)
+        elif t < 84:          # 主人消失: owner-lost / wait_owner
+            self._set_person(100); self._set_object(False, 0)
+        else:
+            return True
+        return False
+
 
     def _new_state_machine(self):
         params = hri_state.load_params()
@@ -97,6 +140,8 @@ class ShadowCarrierSimulation:
         # 用仿真相机真实焦距覆盖标定值, 让距离/速度阈值在仿真里也成立
         params["camera"]["focal_px"] = (self.camera.getWidth() / 2.0) / math.tan(
             self.camera.getFov() / 2.0)
+        # 仿真人形肩宽(含手臂)≈0.62m, 与真机假设 0.45m 不同, 覆盖以让距离估计成立
+        params["camera"]["shoulder_width_m"] = 0.62
         return hri_state.HRIStateMachine(
             send_cmd_fn=self._on_hri_action,
             log_fn=self._hri_log,
@@ -133,18 +178,27 @@ class ShadowCarrierSimulation:
         local_z = math.sin(yaw) * dx + math.cos(yaw) * dz
         return math.degrees(math.atan2(local_x, -local_z))
 
-    def _refresh_grid(self):
-        door = self.robot.getFromDef("SAFE_DOOR")
-        door_pos = door.getPosition()
+    def _grid_object(self, def_name, cls):
+        node = self.robot.getFromDef(def_name)
+        if node is None:
+            return None
+        pos = node.getPosition()
         robot_pos = self.self_node.getPosition()
-        dist = math.hypot(door_pos[0] - robot_pos[0], door_pos[2] - robot_pos[2])
+        dist = math.hypot(pos[0] - robot_pos[0], pos[2] - robot_pos[2])
+        return {"cls": cls, "bearing_deg": self._bearing_to(pos),
+                "dist_m": round(dist, 2)}
+
+    def _refresh_grid(self):
+        """填 demo 全场景的语义快照: 门 + 景点(饮水机/冰箱/柜台)"""
+        objects = [o for o in (
+            self._grid_object("SAFE_DOOR", "door"),
+            self._grid_object("WATER_DISPENSER", "refrigerator"),
+            self._grid_object("REFRIGERATOR", "refrigerator"),
+            self._grid_object("COUNTER", "dining table"),
+        ) if o]
         snapshot = {
             "ts": time.time(),
-            "objects": [{
-                "cls": "door",
-                "bearing_deg": self._bearing_to(door_pos),
-                "dist_m": dist,
-            }],
+            "objects": objects,
             "free_directions_deg": [-45, 45],
         }
         try:
@@ -433,9 +487,16 @@ class ShadowCarrierSimulation:
     def run(self):
         while self.robot.step(self.timestep) != -1:
             now = time.monotonic()
-            key = self.keyboard.getKey()
-            if key > 0:
-                self._process_key(key)
+            if self.autotest:
+                if self._autotest_update(self.robot.getTime()):
+                    print("[SIM] autotest done, quitting")
+                    self._log({"type": "session_end", "reason": "autotest_done"})
+                    self.robot.simulationQuit(0)
+                    return
+            else:
+                key = self.keyboard.getKey()
+                if key > 0:
+                    self._process_key(key)
 
             detections = self._detections()
             distance_cm = float(self.sonar.getValue())
