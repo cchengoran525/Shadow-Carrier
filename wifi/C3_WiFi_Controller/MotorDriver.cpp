@@ -48,9 +48,7 @@ void MotorDriver::update() {
 
   if (targetMode_ != activeMode_ && currentSpeed_ > 0) {
     currentSpeed_ -= MOTOR_RAMP_STEP;
-    if (currentSpeed_ < 0) {
-      currentSpeed_ = 0;
-    }
+    if (currentSpeed_ < 0) currentSpeed_ = 0;
     applyOutput();
     return;
   }
@@ -59,16 +57,28 @@ void MotorDriver::update() {
     activeMode_ = targetMode_;
   }
 
+  if (activeMode_ == MotionMode::Diff) {
+    // 差速模式: 左右轮独立斜坡
+    if (currentLeftSpeed_ < targetLeftSpeed_) {
+      currentLeftSpeed_ = min(currentLeftSpeed_ + MOTOR_RAMP_STEP, targetLeftSpeed_);
+    } else if (currentLeftSpeed_ > targetLeftSpeed_) {
+      currentLeftSpeed_ = max(currentLeftSpeed_ - MOTOR_RAMP_STEP, targetLeftSpeed_);
+    }
+    if (currentRightSpeed_ < targetRightSpeed_) {
+      currentRightSpeed_ = min(currentRightSpeed_ + MOTOR_RAMP_STEP, targetRightSpeed_);
+    } else if (currentRightSpeed_ > targetRightSpeed_) {
+      currentRightSpeed_ = max(currentRightSpeed_ - MOTOR_RAMP_STEP, targetRightSpeed_);
+    }
+    applyOutput();
+    return;
+  }
+
   if (currentSpeed_ < targetSpeed_) {
     currentSpeed_ += MOTOR_RAMP_STEP;
-    if (currentSpeed_ > targetSpeed_) {
-      currentSpeed_ = targetSpeed_;
-    }
+    if (currentSpeed_ > targetSpeed_) currentSpeed_ = targetSpeed_;
   } else if (currentSpeed_ > targetSpeed_) {
     currentSpeed_ -= MOTOR_RAMP_STEP;
-    if (currentSpeed_ < targetSpeed_) {
-      currentSpeed_ = targetSpeed_;
-    }
+    if (currentSpeed_ < targetSpeed_) currentSpeed_ = targetSpeed_;
   }
 
   applyOutput();
@@ -95,6 +105,10 @@ void MotorDriver::execute(const RobotProtocol::Command &command) {
           stop();
           break;
       }
+      break;
+
+    case RobotProtocol::CommandType::Diff:
+      differential(command.leftSpeed, command.rightSpeed);
       break;
 
     case RobotProtocol::CommandType::Stop:
@@ -133,11 +147,29 @@ void MotorDriver::right(int speed) {
   requestMotion(MotionMode::Right, speed);
 }
 
+void MotorDriver::differential(int leftSpeed, int rightSpeed) {
+  if (obstacleDetected_) {
+    stop();
+    return;
+  }
+  targetMode_ = MotionMode::Diff;
+  targetLeftSpeed_ = clampSpeed(leftSpeed);
+  targetRightSpeed_ = clampSpeed(rightSpeed);
+  lastCommandMs_ = millis();
+  if (activeMode_ == MotionMode::Stopped) {
+    activeMode_ = MotionMode::Diff;
+    currentLeftSpeed_ = 0;
+    currentRightSpeed_ = 0;
+  }
+}
+
 void MotorDriver::stop() {
   targetMode_ = MotionMode::Stopped;
   activeMode_ = MotionMode::Stopped;
   targetSpeed_ = 0;
   currentSpeed_ = 0;
+  targetLeftSpeed_ = 0; currentLeftSpeed_ = 0;
+  targetRightSpeed_ = 0; currentRightSpeed_ = 0;
   setStandby(false);
   digitalWrite(MOTOR_AIN1_PIN, LOW);
   digitalWrite(MOTOR_AIN2_PIN, LOW);
@@ -185,6 +217,13 @@ void MotorDriver::applyOutput() {
 
     case MotionMode::Right:
       setMotorPins(true, false, false, true, leftSpeed, rightSpeed);
+      break;
+
+    case MotionMode::Diff:
+      // 差速: 两轮均向前, 各自独立速度 = 弧线运动
+      setMotorPins(true, false, true, false,
+                   applyTrim(currentLeftSpeed_, MOTOR_LEFT_TRIM_PERCENT),
+                   applyTrim(currentRightSpeed_, MOTOR_RIGHT_TRIM_PERCENT));
       break;
 
     case MotionMode::Stopped:

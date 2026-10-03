@@ -17,6 +17,7 @@ class UltrasonicSensor {
   int lastDistanceCm_ = -1;
   uint8_t clearSampleCount_ = 0;
   bool obstacleDetected_ = false;
+  uint32_t lastObstacleLockMs_ = 0;
 };
 
 void initUltrasonicSensor(UltrasonicSensor &sensor);

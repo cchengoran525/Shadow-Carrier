@@ -49,6 +49,26 @@ RobotProtocol::Command CommandParser::parse(const String &line) const {
 
   int index = 0;
   String action = nextToken(normalized, index);
+
+  // DIFF L<speed> R<speed>
+  if (action == "DIFF") {
+    String leftToken = nextToken(normalized, index);
+    String rightToken = nextToken(normalized, index);
+    if (leftToken.length() >= 2 && leftToken[0] == 'L' &&
+        rightToken.length() >= 2 && rightToken[0] == 'R' &&
+        !hasExtraToken(normalized, index)) {
+      int ls = leftToken.substring(1).toInt();
+      int rs = rightToken.substring(1).toInt();
+      if (ls >= 0 && ls <= 255 && rs >= 0 && rs <= 255) {
+        command.type = RobotProtocol::CommandType::Diff;
+        command.leftSpeed = ls;
+        command.rightSpeed = rs;
+        return command;
+      }
+    }
+    return command;  // parse fail
+  }
+
   if (action != "MOVE") {
     return command;
   }
@@ -79,6 +99,13 @@ void CommandParser::printCommand(const RobotProtocol::Command &command) const {
       Serial.print(directionToText(command.direction));
       Serial.print(" speed=");
       Serial.println(command.speed);
+      break;
+
+    case RobotProtocol::CommandType::Diff:
+      Serial.print("Parsed command: DIFF L");
+      Serial.print(command.leftSpeed);
+      Serial.print(" R");
+      Serial.println(command.rightSpeed);
       break;
 
     case RobotProtocol::CommandType::Stop:

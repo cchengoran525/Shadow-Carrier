@@ -26,6 +26,7 @@ void UltrasonicSensor::update() {
   if (lastDistanceCm_ > 0 && lastDistanceCm_ <= OBSTACLE_STOP_DISTANCE_CM) {
     obstacleDetected_ = true;
     clearSampleCount_ = 0;
+    lastObstacleLockMs_ = now;
   } else if (lastDistanceCm_ >= OBSTACLE_CLEAR_DISTANCE_CM) {
     if (clearSampleCount_ < OBSTACLE_CLEAR_CONFIRM_SAMPLES) {
       clearSampleCount_++;
@@ -35,6 +36,24 @@ void UltrasonicSensor::update() {
     }
   } else if (lastDistanceCm_ > 0) {
     clearSampleCount_ = 0;
+  } else {
+    // 传感器超时/无回波: 累计一定次数后强制清除, 防止永久锁死
+    if (obstacleDetected_) {
+      if (clearSampleCount_ < OBSTACLE_CLEAR_CONFIRM_SAMPLES + 2) {
+        clearSampleCount_++;
+      }
+      if (clearSampleCount_ >= OBSTACLE_CLEAR_CONFIRM_SAMPLES + 2) {
+        obstacleDetected_ = false;
+        Serial.println("WARN: obstacle force-cleared (sensor timeout)");
+      }
+    }
+  }
+
+  // 安全网: 锁死超过5秒强制清除
+  if (obstacleDetected_ && lastObstacleLockMs_ > 0 &&
+      now - lastObstacleLockMs_ > MAX_OBSTACLE_LATCH_MS) {
+    obstacleDetected_ = false;
+    Serial.println("WARN: obstacle force-cleared (max duration)");
   }
 
   if (obstacleDetected_ != previousObstacleState) {

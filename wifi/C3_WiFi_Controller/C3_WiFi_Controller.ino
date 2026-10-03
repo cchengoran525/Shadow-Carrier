@@ -3,6 +3,11 @@
  * ESP32-C3 连 KickPi 热点, TCP:8888 接收 ASCII 命令, 驱动 TB6612。
  * 保留: 电机斜坡/超声波避障/450ms超时/STBY管理。
  * 依赖: 原 C3 固件的 CommandParser.h/cpp, Config.h, MotorDriver.h/cpp, UltrasonicSensor.h/cpp
+ *
+ * ⚠️ 共享源文件(.h/.cpp)必须与权威目录 C3_USB_Controller/ 保持一致,
+ *    改完跑 `tools/check_firmware_sync.sh`(不一致会退出 1) 或 `--fix` 同步。
+ * ⚠️ WiFi 传输为实验链路: 使用前需给 rk_control.py 加 TCP 客户端;
+ *    编译不要带 CDCOnBoot=cdc(否则 Serial 日志写满会阻塞 loop)。
  */
 #include <WiFi.h>
 #include "CommandParser.h"

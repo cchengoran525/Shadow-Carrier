@@ -38,6 +38,7 @@ constexpr uint32_t ULTRASONIC_ECHO_TIMEOUT_US = 12000;
 constexpr int OBSTACLE_STOP_DISTANCE_CM = 20;
 constexpr int OBSTACLE_CLEAR_DISTANCE_CM = 25;
 constexpr uint8_t OBSTACLE_CLEAR_CONFIRM_SAMPLES = 3;
+constexpr uint32_t MAX_OBSTACLE_LATCH_MS = 5000;
 
 // Maximum command length. Protocol commands are intentionally short ASCII lines.
 constexpr size_t MAX_COMMAND_LENGTH = 48;

@@ -16,6 +16,7 @@ class MotorDriver {
   void backward(int speed);
   void left(int speed);
   void right(int speed);
+  void differential(int leftSpeed, int rightSpeed);
   void stop();
 
  private:
@@ -24,7 +25,8 @@ class MotorDriver {
     Forward,
     Backward,
     Left,
-    Right
+    Right,
+    Diff
   };
 
   void requestMotion(MotionMode mode, int speed);
@@ -38,6 +40,8 @@ class MotorDriver {
   MotionMode activeMode_ = MotionMode::Stopped;
   int targetSpeed_ = 0;
   int currentSpeed_ = 0;
+  int targetLeftSpeed_ = 0, targetRightSpeed_ = 0;
+  int currentLeftSpeed_ = 0, currentRightSpeed_ = 0;
   uint32_t lastCommandMs_ = 0;
   uint32_t lastRampMs_ = 0;
   bool obstacleDetected_ = false;
