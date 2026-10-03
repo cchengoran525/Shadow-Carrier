@@ -158,7 +158,7 @@ class ShadowCarrierSimulation:
 
     def _log_open(self):
         path = Path(__file__).resolve().parent / "sim_session.jsonl"
-        self.log_file = open(path, "w", buffering=1)  # 每次运行覆盖, 避免多会话混在一起
+        self.log_file = open(path, "w", buffering=1, encoding="utf-8")  # 每次运行覆盖, 避免多会话混在一起
         self.log_t0 = time.monotonic()
         self.log_file.write(json.dumps({"type": "session_start",
                                         "t0": time.time(),
@@ -536,6 +536,11 @@ class ShadowCarrierSimulation:
                 key = self.keyboard.getKey()
                 if key > 0:
                     self._process_key(key)
+
+            if self.autotest and not self.autotest_motion:
+                # 观察模式: 物理漂移会把车推到主人身上, 每步钉回原点
+                self.position_field.setSFVec3f([0, 0.06, 0])
+                self.rotation_field.setSFRotation([0, 0, 1, 0])
 
             detections = self._detections()
             if self.geom_det and not detections and not self._geom_warned:
