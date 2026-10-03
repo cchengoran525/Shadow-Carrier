@@ -81,6 +81,12 @@ class ShadowCarrierSimulation:
         self.last_status = 0.0
         self.last_blocked = False
 
+        self.autotest = bool(os.environ.get("SIM_AUTOTEST"))
+        self.autotest_motion = os.environ.get("SIM_AUTOTEST_MOTION") == "1"
+        # 自动测试硬开几何真值检测(不依赖环境变量传递): 仿真不做 YOLO 精度, 只验行为
+        self.geom_det = True if self.autotest else (os.environ.get("SIM_GEOM_DET") == "1")
+        self.PERSON_W, self.PERSON_H = 0.62, 1.66
+        self._geom_warned = False
         self.grid_path = Path(tempfile.gettempdir()) / "shadow_carrier_webots_grid.json"
         self._log_open()
         self.machine = self._new_state_machine()
@@ -92,12 +98,7 @@ class ShadowCarrierSimulation:
         print("[SIM] Webots adapter ready. HRI is on; use T to toggle it.")
         print("[SIM] WASD drive, Space stop; I/K/J/L move owner; O offer object; H hide owner; R reset.")
         print("[SIM] ',' '.' pan; '-' '=' tilt. Commands follow the C3 450 ms timeout and ramp.")
-        self.autotest = bool(os.environ.get("SIM_AUTOTEST"))
-        self.autotest_motion = os.environ.get("SIM_AUTOTEST_MOTION") == "1"
-        # 自动测试默认用几何真值检测(Webots 识别在中远距离不可靠, 而仿真不做 YOLO 精度)
-        self.geom_det = (os.environ.get("SIM_GEOM_DET", "1") == "1") if self.autotest \
-            else (os.environ.get("SIM_GEOM_DET", "0") == "1")
-        self.PERSON_W, self.PERSON_H = 0.62, 1.66
+        print(f"[SIM] geom_det={self.geom_det} fx={self.fx_px:.1f}")
         if self.autotest:
             print("[SIM] AUTOTEST mode: scripted owner timeline, keyboard ignored, auto-quit at end.")
             print(f"[SIM] chassis motion: {'ON' if self.autotest_motion else 'OFF (observe-only)'}")
@@ -160,7 +161,10 @@ class ShadowCarrierSimulation:
         self.log_file = open(path, "w", buffering=1)  # 每次运行覆盖, 避免多会话混在一起
         self.log_t0 = time.monotonic()
         self.log_file.write(json.dumps({"type": "session_start",
-                                        "t0": time.time()}) + "\n")
+                                        "t0": time.time(),
+                                        "geom_det": self.geom_det,
+                                        "autotest": self.autotest,
+                                        "fx_px": round(self.fx_px, 1)}) + "\n")
         print(f"[SIM] 黑匣子: {path}")
 
     def _log(self, record):
@@ -534,6 +538,13 @@ class ShadowCarrierSimulation:
                     self._process_key(key)
 
             detections = self._detections()
+            if self.geom_det and not detections and not self._geom_warned:
+                self._geom_warned = True
+                rp = self.self_node.getPosition()
+                op = self.owner_translation.getSFVec3f()
+                self._log({"type": "warn", "msg": "geom detector empty",
+                           "robot": [round(v, 2) for v in rp],
+                           "owner": [round(v, 2) for v in op]})
             distance_cm = float(self.sonar.getValue())
             blocked = 0 < distance_cm <= SONAR_STOP_CM
 
