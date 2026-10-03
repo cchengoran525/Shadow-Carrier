@@ -192,9 +192,13 @@ class HRIStateMachine:
         owner = self._pick_owner(dets, owner_score_fn)
         act = "NONE"
         if owner is None:
-            if (self.state == "HIDE" and
-                    time.time() - self.owner_last_seen > p["timing"]["owner_lost_abort_s"]):
+            lost = time.time() - self.owner_last_seen
+            if self.state == "HIDE" and lost > p["timing"]["owner_lost_abort_s"]:
                 self._set_state("FOLLOW", "主人消失, 扫掠中断")
+            elif (self.state in ("RECEIVE", "YIELD")
+                  and lost > p["timing"]["owner_lost_abort_s"]):
+                self.receive_cooldown_until = now + p["timing"]["receive_cooldown_s"]
+                self._set_state("WAIT", "主人离开")
             return {"state": self.state, "action": "NONE"}
         self.owner_last_seen = time.time()
 
