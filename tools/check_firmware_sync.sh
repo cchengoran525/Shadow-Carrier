@@ -29,7 +29,7 @@ for f in "$AUTH"/*.h "$AUTH"/*.cpp; do
     echo "MISSING  $b  (变体目录缺失)"
     [ "$FIX" -eq 1 ] && cp "$f" "$VARIANT/$b"
     fail=1
-  elif ! cmp -s "$f" "$VARIANT/$b"; then
+  elif ! diff -q --strip-trailing-cr "$f" "$VARIANT/$b" >/dev/null 2>&1; then
     echo "DIFF     $b"
     [ "$FIX" -eq 1 ] && cp "$f" "$VARIANT/$b"
     fail=1
