@@ -150,7 +150,7 @@ class ShadowCarrierSimulation:
 
     def _log_open(self):
         path = Path(__file__).resolve().parent / "sim_session.jsonl"
-        self.log_file = open(path, "a", buffering=1)
+        self.log_file = open(path, "w", buffering=1)  # 每次运行覆盖, 避免多会话混在一起
         self.log_t0 = time.monotonic()
         self.log_file.write(json.dumps({"type": "session_start",
                                         "t0": time.time()}) + "\n")
@@ -516,9 +516,9 @@ class ShadowCarrierSimulation:
                             self._drive_to_safe_target()
                     self._log({"type": "frame", **out,
                                "dets": [d["label"] for d in detections],
+                               "boxes": {d["label"]: [int(v) for v in d["bbox"]] for d in detections},
                                "n_rec": len(self.camera.getRecognitionObjects()),
                                "owner": [round(v, 2) for v in self.owner_translation.getSFVec3f()],
-                               "rot": [round(v, 2) for v in self.self_node.getOrientation()],
                                "sonar_cm": round(float(self.sonar.getValue()), 1)})
                 self.last_hri_tick = now
 
