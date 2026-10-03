@@ -28,3 +28,4 @@ graphflow-out/
 # Webots sim black box
 shadow_carrier_on_rockchip/simulation/webots/controllers/shadow_carrier/sim_session.jsonl
 shadow_carrier_on_rockchip/simulation/webots/worlds/_autotest.wbt
+shadow_carrier_on_rockchip/simulation/webots/worlds/._autotest*

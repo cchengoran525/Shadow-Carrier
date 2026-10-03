@@ -386,7 +386,7 @@ class ShadowCarrierSimulation:
             return
         yaw_error = (self.safe_target_yaw - self._yaw() + math.pi) % (2 * math.pi) - math.pi
         if abs(yaw_error) > math.radians(8):
-            self._execute_ascii("MOVE L 42" if yaw_error > 0 else "MOVE R 42")
+            self._execute_ascii("MOVE R 42" if yaw_error > 0 else "MOVE L 42")
         else:
             self._execute_ascii("MOVE F 55")
 
@@ -556,10 +556,12 @@ class ShadowCarrierSimulation:
                         detections,
                         robot_moving=(abs(self.left_current) + abs(self.right_current) > 5),
                     )
-                    if now >= self.manual_until and not self.autotest:
-                        if out["action"] == "NONE" and self.machine.state == "FOLLOW":
+                    if now >= self.manual_until:
+                        if (not self.autotest and out["action"] == "NONE"
+                                and self.machine.state == "FOLLOW"):
                             self.follower.tick()
-                        elif out["action"].startswith("GOTO_SAFE"):
+                        elif (out["action"].startswith("GOTO_SAFE")
+                              and not (self.autotest and not self.autotest_motion)):
                             self._drive_to_safe_target()
                     self._log({"type": "frame", **out,
                                "dets": [d["label"] for d in detections],

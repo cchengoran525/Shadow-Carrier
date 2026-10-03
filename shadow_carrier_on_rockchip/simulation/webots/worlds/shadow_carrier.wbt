@@ -9,6 +9,11 @@ WorldInfo {
       material2 "floor"
       coulombFriction 1.4
     }
+    ContactProperties {
+      material1 "caster"
+      material2 "floor"
+      coulombFriction 0.02
+    }
   ]
 }
 Viewpoint {
@@ -264,12 +269,12 @@ DEF SIM_ROBOT Robot {
                   recognition Recognition { }
                 }
               ]
-              boundingObject Box { size 0.10 0.06 0.09 }
+              boundingObject NULL
               physics Physics { density -1 mass 0.05 }
             }
           }
         ]
-        boundingObject Box { size 0.09 0.04 0.09 }
+        boundingObject NULL
         physics Physics { density -1 mass 0.05 }
       }
     }
@@ -282,7 +287,20 @@ DEF SIM_ROBOT Robot {
       aperture 0.35
       lookupTable [ 0 0 0, 0.2 20 0, 2 200 0 ]
     }
+    Solid {
+      translation 0 -0.040 0.105
+      name "rear caster"
+      contactMaterial "caster"
+      children [
+        Shape {
+          appearance PBRAppearance { baseColor 0.10 0.10 0.10 roughness 0.9 }
+          geometry Sphere { radius 0.02 }
+        }
+      ]
+      boundingObject Sphere { radius 0.02 }
+      physics Physics { density -1 mass 0.02 }
+    }
   ]
-  boundingObject Box { size 0.22 0.075 0.27 }
+  boundingObject Pose { translation 0 0.0535 0 children [ Box { size 0.22 0.04 0.27 } ] }
   physics Physics { density -1 mass 0.85 centerOfMass [ 0 0.015 0 ] }
 }
