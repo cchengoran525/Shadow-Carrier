@@ -152,6 +152,7 @@ Current implementation focuses on the low-level distributed robot platform:
 - `DistributedRobot_S3_Gateway/`: ESP32-S3 Network Gateway for the original WiFi-to-UART control path.
 - `DistributedRobot_C3_MotionController/`: ESP32-C3 Motion Controller for the original GPIO UART path. It parses the shared ASCII command format, drives the TB6612 dual motor driver, and stops forward motion when the front ultrasonic sensor detects an obstacle.
 - `shadow_carrier_on_rockchip/`: **KickPi (RK3566) vision brain** — the current decision maker. YOLO NPU detection pipeline, 2-axis servo gimbal driven by the C3, and an extended ASCII protocol (`MOVE`/`STOP`/`DIFF`/`PING`/`PAN`/`TLT`) over USB CDC to a dedicated C3 USB firmware.
+- `shadow_carrier_on_rockchip/simulation/webots/`: desktop Webots scene and adapter for simulating the current ASCII motion protocol and HRI behavior without the physical robot. See its [setup and controls](shadow_carrier_on_rockchip/simulation/webots/README.md).
 - The C3/S3 firmware stays low-level (no AI); AI and behavior run on the KickPi brain (below).
 
 ### v0.5 C3 Direct-Drive Gimbal (`shadow_carrier_on_rockchip`)

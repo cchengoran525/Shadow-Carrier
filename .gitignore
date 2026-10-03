@@ -20,3 +20,7 @@ __pycache__/
 
 # Agent coordination file (local only, not synced to GitHub)
 EXCHANGE.md
+
+# GraphFlow local cache / tool output
+.graphflow-cache/
+graphflow-out/

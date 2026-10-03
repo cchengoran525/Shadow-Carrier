@@ -23,6 +23,7 @@ shadow_carrier_on_rockchip/
 ├── gimbal/           # 两轴舵机云台 (W1救援式级联+实测教训, 详见README)
 │   ├── gimbal_follow.py
 │   └── README.md
+├── simulation/webots/ # 桌面图形仿真 (无需 RK3566/C3/实体底盘)
 ├── config/           # settings.yaml
 └── models/           # (空, 模型路径引用)
 
@@ -116,7 +117,12 @@ C3 的 Serial print 输出填满 CDC TX buffer → C3 loop() 阻塞 → C3 不�
 ### Python f-string 里的 JS 花括号
 JS 的 `{}` 在 Python f-string 里必须写成 `{{}}`。忘记双写 → SyntaxError → 服务挂了。
 
+## Webots 图形仿真
+
+可在 macOS 或 Windows 桌面打开 `simulation/webots/worlds/shadow_carrier.wbt`，不需要 RK3566、C3 或实体底盘。仿真包含差速底盘、云台、相机识别框、超声波、障碍物和可移动目标，并复用当前跟随控制器与 HRI 状态机。运行方式、按键和仿真边界见 [`simulation/webots/README.md`](simulation/webots/README.md)。
+
 ## 跟人控制研究记录
+
 
 首次测试(20Hz 开关式命令) → 左右疯狂摇摆。问题拆解:
 

@@ -1,0 +1,248 @@
+#VRML_SIM R2025a utf8
+
+WorldInfo {
+  basicTimeStep 32
+  gravity 9.81
+  contactProperties [
+    ContactProperties {
+      material1 "wheel"
+      material2 "floor"
+      coulombFriction 1.4
+    }
+  ]
+}
+Viewpoint {
+  orientation 1 0 0 -0.62
+  position 0 4.8 6
+}
+Background {
+  skyColor [ 0.42 0.62 0.78 ]
+}
+DirectionalLight {
+  direction -0.3 -1 -0.5
+  intensity 0.9
+}
+
+DEF FLOOR Solid {
+  translation 0 -0.06 0
+  name "floor"
+  contactMaterial "floor"
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.78 0.81 0.79 roughness 0.92 }
+      geometry Box { size 8 0.12 8 }
+    }
+  ]
+  boundingObject Box { size 8 0.12 8 }
+}
+
+DEF BACK_WALL Solid {
+  translation 0 0.8 -4.05
+  name "back wall"
+  children [ Shape { appearance PBRAppearance { baseColor 0.72 0.75 0.76 } geometry Box { size 8 1.6 0.1 } } ]
+  boundingObject Box { size 8 1.6 0.1 }
+}
+DEF LEFT_WALL Solid {
+  translation -4.05 0.8 0
+  name "left wall"
+  children [ Shape { appearance PBRAppearance { baseColor 0.72 0.75 0.76 } geometry Box { size 0.1 1.6 8 } } ]
+  boundingObject Box { size 0.1 1.6 8 }
+}
+DEF RIGHT_WALL Solid {
+  translation 4.05 0.8 0
+  name "right wall"
+  children [ Shape { appearance PBRAppearance { baseColor 0.72 0.75 0.76 } geometry Box { size 0.1 1.6 8 } } ]
+  boundingObject Box { size 0.1 1.6 8 }
+}
+DEF FRONT_WALL Solid {
+  translation 0 0.8 4.05
+  name "front wall"
+  children [ Shape { appearance PBRAppearance { baseColor 0.72 0.75 0.76 } geometry Box { size 8 1.6 0.1 } } ]
+  boundingObject Box { size 8 1.6 0.1 }
+}
+
+# Visible landmark consumed by the simulated HIDE grid snapshot.
+DEF SAFE_DOOR Solid {
+  translation 1.10 0 -3.30
+  name "safe door"
+  model "door"
+  recognitionColors [ 0.12 0.46 0.78 ]
+  children [
+    Pose {
+      translation -0.48 0.95 0
+      children [ Shape { appearance PBRAppearance { baseColor 0.12 0.46 0.78 } geometry Box { size 0.08 1.9 0.10 } } ]
+    }
+    Pose {
+      translation 0.48 0.95 0
+      children [ Shape { appearance PBRAppearance { baseColor 0.12 0.46 0.78 } geometry Box { size 0.08 1.9 0.10 } } ]
+    }
+    Pose {
+      translation 0 1.9 0
+      children [ Shape { appearance PBRAppearance { baseColor 0.12 0.46 0.78 } geometry Box { size 1.04 0.08 0.10 } } ]
+    }
+  ]
+}
+
+DEF OBSTACLE Solid {
+  translation -0.62 0.24 -1.55
+  name "obstacle"
+  contactMaterial "obstacle"
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.92 0.55 0.16 roughness 0.78 }
+      geometry Box { size 0.52 0.48 0.52 }
+    }
+  ]
+  boundingObject Box { size 0.52 0.48 0.52 }
+}
+
+DEF OWNER Solid {
+  translation 0 0 -2.65
+  name "simulated owner"
+  model "person"
+  recognitionColors [ 0.82 0.20 0.16 ]
+  children [
+    Pose {
+      translation 0 0.92 0
+      children [ Shape { appearance PBRAppearance { baseColor 0.82 0.20 0.16 roughness 0.7 } geometry Box { size 0.48 0.78 0.30 } } ]
+    }
+    Pose {
+      translation 0 1.48 0
+      children [ Shape { appearance PBRAppearance { baseColor 0.88 0.67 0.48 roughness 0.8 } geometry Sphere { radius 0.16 } } ]
+    }
+    Pose {
+      translation -0.14 0.30 0
+      children [ Shape { appearance PBRAppearance { baseColor 0.17 0.22 0.30 } geometry Box { size 0.17 0.60 0.22 } } ]
+    }
+    Pose {
+      translation 0.14 0.30 0
+      children [ Shape { appearance PBRAppearance { baseColor 0.17 0.22 0.30 } geometry Box { size 0.17 0.60 0.22 } } ]
+    }
+    Pose {
+      translation -0.31 0.91 0
+      rotation 0 0 1 -0.15
+      children [ Shape { appearance PBRAppearance { baseColor 0.88 0.67 0.48 } geometry Box { size 0.13 0.64 0.14 } } ]
+    }
+    Pose {
+      translation 0.31 0.91 0
+      rotation 0 0 1 0.15
+      children [ Shape { appearance PBRAppearance { baseColor 0.88 0.67 0.48 } geometry Box { size 0.13 0.64 0.14 } } ]
+    }
+  ]
+  boundingObject Pose {
+    translation 0 0.83 0
+    children [ Box { size 0.62 1.66 0.38 } ]
+  }
+}
+
+DEF OFFER_OBJECT Solid {
+  translation 100 0.9 100
+  name "simulated hand object"
+  model "bottle"
+  recognitionColors [ 0.14 0.70 0.44 ]
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.14 0.70 0.44 roughness 0.5 }
+      geometry Cylinder { radius 0.045 height 0.22 }
+    }
+    Pose {
+      translation 0 0.12 0
+      children [ Shape { appearance PBRAppearance { baseColor 0.90 0.90 0.84 } geometry Cylinder { radius 0.025 height 0.04 } } ]
+    }
+  ]
+  boundingObject Cylinder { radius 0.045 height 0.22 }
+}
+
+DEF SIM_ROBOT Robot {
+  translation 0 0.06 0
+  name "Shadow Carrier simulation"
+  controller "shadow_carrier"
+  supervisor TRUE
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.12 0.20 0.24 roughness 0.58 }
+      geometry Box { size 0.22 0.075 0.27 }
+    }
+    Pose {
+      translation 0 0.04 -0.15
+      children [ Shape { appearance PBRAppearance { baseColor 0.95 0.82 0.22 } geometry Box { size 0.12 0.025 0.015 } } ]
+    }
+    HingeJoint {
+      jointParameters HingeJointParameters { anchor -0.115 -0.015 0 axis 1 0 0 }
+      device [ RotationalMotor { name "left wheel motor" maxTorque 4 maxVelocity 18 } ]
+      endPoint Solid {
+        name "left wheel"
+        contactMaterial "wheel"
+        children [
+          Transform {
+            rotation 0 0 1 1.5708
+            children [ Shape { appearance PBRAppearance { baseColor 0.08 0.09 0.10 roughness 0.96 } geometry Cylinder { radius 0.047 height 0.028 } } ]
+          }
+        ]
+        boundingObject Pose { rotation 0 0 1 1.5708 children [ Cylinder { radius 0.047 height 0.028 } ] }
+        physics Physics { density -1 mass 0.09 }
+      }
+    }
+    HingeJoint {
+      jointParameters HingeJointParameters { anchor 0.115 -0.015 0 axis 1 0 0 }
+      device [ RotationalMotor { name "right wheel motor" maxTorque 4 maxVelocity 18 } ]
+      endPoint Solid {
+        name "right wheel"
+        contactMaterial "wheel"
+        children [
+          Transform {
+            rotation 0 0 1 1.5708
+            children [ Shape { appearance PBRAppearance { baseColor 0.08 0.09 0.10 roughness 0.96 } geometry Cylinder { radius 0.047 height 0.028 } } ]
+          }
+        ]
+        boundingObject Pose { rotation 0 0 1 1.5708 children [ Cylinder { radius 0.047 height 0.028 } ] }
+        physics Physics { density -1 mass 0.09 }
+      }
+    }
+    HingeJoint {
+      jointParameters HingeJointParameters { anchor 0 0.095 -0.045 axis 0 1 0 }
+      device [ RotationalMotor { name "pan motor" minPosition -1.5708 maxPosition 1.5708 maxVelocity 2.5 maxTorque 0.4 } ]
+      endPoint Solid {
+        name "pan stage"
+        children [
+          Shape { appearance PBRAppearance { baseColor 0.25 0.31 0.33 } geometry Box { size 0.08 0.035 0.08 } }
+          HingeJoint {
+            jointParameters HingeJointParameters { anchor 0 0.025 -0.02 axis 1 0 0 }
+            device [ RotationalMotor { name "tilt motor" minPosition -1.95 maxPosition 1.19 maxVelocity 2.5 maxTorque 0.4 } ]
+            endPoint Solid {
+              name "tilt stage"
+              children [
+                Shape { appearance PBRAppearance { baseColor 0.16 0.25 0.29 } geometry Box { size 0.095 0.055 0.08 } }
+                Camera {
+                  name "front camera"
+                  translation 0 0.005 -0.055
+                  width 640
+                  height 480
+                  fieldOfView 1.0
+                  near 0.03
+                  far 8
+                  recognition Recognition { }
+                }
+              ]
+              boundingObject Box { size 0.10 0.06 0.09 }
+              physics Physics { density -1 mass 0.05 }
+            }
+          }
+        ]
+        boundingObject Box { size 0.09 0.04 0.09 }
+        physics Physics { density -1 mass 0.05 }
+      }
+    }
+    DistanceSensor {
+      name "front sonar"
+      translation 0 0.035 -0.145
+      rotation 0 1 0 1.5708
+      type "sonar"
+      numberOfRays 5
+      aperture 0.35
+      lookupTable [ 0 0 0, 0.2 20 0, 2 200 0 ]
+    }
+  ]
+  boundingObject Box { size 0.22 0.075 0.27 }
+  physics Physics { density -1 mass 0.85 centerOfMass [ 0 0.015 0 ] }
+}

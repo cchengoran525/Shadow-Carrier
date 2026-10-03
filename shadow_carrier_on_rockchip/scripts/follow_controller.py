@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """follow_controller.py v4 - 差速弧线跟人 + 快速认主(颜色+体态, owner_id)"""
 import time, json, math, urllib.request
-import cv2
 
 # ========== 调参区 ==========
 FW, FH = 640, 480
@@ -30,10 +29,12 @@ DET_API = "http://127.0.0.1:8080/api/detections"
 # ============================
 
 class FollowController:
-    def __init__(self, send_cmd_fn, bearing_fn=None):
+    def __init__(self, send_cmd_fn, bearing_fn=None, person_provider=None):
         # bearing_fn: [云台]线提供的"主人世界方位角(度)"只读回调。
         # 非None时转向误差用它(云台解耦), 否则退回原始bbox像素偏差。
+        # person_provider: 仿真检测输入; 实机默认仍走 owner_id 认主链路。
         self.bearing_fn = bearing_fn
+        self.person_provider = person_provider
         self.send_cmd = send_cmd_fn
         self.scx = FCX
         self.scy = FH / 2
@@ -49,9 +50,13 @@ class FollowController:
         self.low_streak = 0      # 连续低分/丢失拍数(逃逸错锁用)
 
     def start(self):
-        """启动跟随。返回 False = 认主失败, 拒绝跟随(机主原则: 不跟陌生人)"""
+        """启动跟随; 仿真注入目标检测，实机必须通过 owner_id 认主。"""
         self.running = True; self.lost = 0
         self.last_turn_dir = None; self.backing = False
+        if self.person_provider is not None:
+            self.profile = "simulated-owner"
+            print("[follow] simulated owner acquired from injected detector")
+            return True
         # 快速认主: 失败重试一次; 仍失败 → 拒绝跟随(宁笨勿邪的完整含义:
         # 没有可信模板就不跟任何人, 降级跟最大=跟随机路人是被禁止的)
         try:
@@ -91,8 +96,13 @@ class FollowController:
         print("[follow] resumed")
 
     def _fetch_person(self):
-        """认主版选人(机主原则2026-08-28): 只跟模板匹配的主人。
-        失配/异常/无模板一律返回None→丢失流程, 全链路不存在"跟路人"路径"""
+        """Use an injected detector when present; otherwise require the enrolled owner profile."""
+        if self.person_provider is not None:
+            try:
+                return self.person_provider()
+            except Exception as e:
+                print(f"[follow] injected detector error: {e}")
+                return None
         try:
             import owner_id
             dets = owner_id._fetch_detections()  # 已做类型防御
