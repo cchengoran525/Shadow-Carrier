@@ -4,3 +4,4 @@
 *.rknn binary
 *.so binary
 *.tar.gz binary
+*.bat text eol=crlf
