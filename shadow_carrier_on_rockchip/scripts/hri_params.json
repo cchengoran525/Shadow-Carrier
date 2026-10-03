@@ -10,8 +10,12 @@
   },
   "metric": {
     "static_disp_m": 0.08,
+    "static_v_mps": 0.15,
     "wake_disp_m": 0.40,
     "near_dist_m": 1.2,
+    "bend_near_dist_m": 2.5,
+    "receive_exit_s": 0.8,
+    "v_ema": 0.4,
     "approach_fast_mps": 0.8,
     "approach_slow_mps": 0.15,
     "recede_mps": 0.05
@@ -44,10 +48,12 @@
     "hold_classes": ["bottle", "cup", "wine glass", "banana", "apple", "orange", "handbag", "backpack"],
     "hold_iou_min": 0.05,
     "hold_conf_min": 0.35,
+    "held_latch_s": 1.5,
+    "held_min_hits": 2,
     "hold_any_class": true,
-    "hold_any_min_conf": 0.4,
-    "hold_any_top_frac": 0.6,
-    "hold_any_max_area_ratio": 0.6
+    "hold_any_min_conf": 0.5,
+    "hold_any_top_frac": 0.45,
+    "hold_any_max_area_ratio": 0.3
   },
   "paths": {
     "grid_json": "~/world_lab/fusion/grid.json"

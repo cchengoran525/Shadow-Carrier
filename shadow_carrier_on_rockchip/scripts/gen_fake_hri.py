@@ -27,11 +27,13 @@ def person(dist, jitter=0.0, shrink=1.0):
 
 
 def obj(label, dist, shrink=1.0, conf=0.7):
-    h = min(FRAME_H - 10, K / dist) * shrink
-    w = h * 0.35
-    top = FRAME_H - 5 - h
-    return {"label": label, "conf": conf,
-            "bbox": [CX - w / 4, top + h * 0.15, CX + w / 4, top + h * 0.15 + h * 0.4]}
+    """手持物: 放在主人上半身(手部)区域, 与真实手持位置一致"""
+    p = person(dist)
+    x1, y1, x2, y2 = p["bbox"]
+    ph, pw = y2 - y1, x2 - x1
+    oh, ow = ph * 0.22, pw * 0.5
+    bx, by = x1 + pw * 0.25, y1 + ph * 0.30
+    return {"label": label, "conf": conf, "bbox": [bx, by, bx + ow, by + oh]}
 
 
 frames = []

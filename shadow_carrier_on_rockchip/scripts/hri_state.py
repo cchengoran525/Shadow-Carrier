@@ -17,7 +17,10 @@ DEFAULT_PARAMS = os.path.join(SCRIPT_DIR, "hri_params.json")
 DEFAULTS = {
     "camera": {"focal_px": 508.0, "person_height_m": 1.65,
                "frame_h": 480, "clip_ratio": 0.9, "shoulder_width_m": 0.45},
-    "metric": {"static_disp_m": 0.08, "wake_disp_m": 0.40, "near_dist_m": 1.2,
+    "metric": {"static_disp_m": 0.08, "static_v_mps": 0.15,
+               "wake_disp_m": 0.40, "near_dist_m": 1.2,
+               "bend_near_dist_m": 2.5, "receive_exit_s": 0.8,
+               "v_ema": 0.4,
                "approach_fast_mps": 0.8, "approach_slow_mps": 0.15,
                "recede_mps": 0.05},
     "pixel": {"static_disp_px": 15, "wake_disp_px": 40, "near_h_px": 300,
@@ -32,8 +35,9 @@ DEFAULTS = {
                 "hold_classes": ["bottle", "cup", "wine glass", "banana",
                                  "apple", "orange", "handbag", "backpack"],
                 "hold_iou_min": 0.05, "hold_conf_min": 0.35,
-                "hold_any_class": True, "hold_any_min_conf": 0.4,
-                "hold_any_top_frac": 0.6, "hold_any_max_area_ratio": 0.6},
+                "held_latch_s": 1.5, "held_min_hits": 2,
+                "hold_any_class": True, "hold_any_min_conf": 0.5,
+                "hold_any_top_frac": 0.45, "hold_any_max_area_ratio": 0.3},
     "paths": {"grid_json": "~/world_lab/fusion/grid.json"},
 }
 
@@ -111,6 +115,13 @@ class HRIStateMachine:
         self.owner_last_seen = time.time()
         self.prev_dist_raw = None
         self.last_progress_t = 0.0
+        self.held_label = None
+        self.held_last_t = 0.0
+        self.held_hits = 0
+        self.held_armed_until = 0.0
+        self.held_conf = 0.0
+        self.v_sm = None
+        self.recede_since = None
 
     # ---- 内部工具 ----
     def _set_state(self, new, reason=""):
@@ -139,27 +150,34 @@ class HRIStateMachine:
         return best
 
     def _held_object(self, dets, owner_box):
-        """先按具名类别, 再走类别无关的"手中物"关系判据"""
+        """具名类别优先, 再走类别无关关系判据; 两者都要求:
+        与主人上半区重叠 + 面积明显小于主人(排除椅子/盆栽等场景物)"""
         cls = self.p["classes"]
+        x1, y1, x2, y2 = owner_box
+        owner_area = max(1.0, (x2 - x1) * (y2 - y1))
+        upper = [x1, y1, x2, y1 + (y2 - y1) * cls["hold_any_top_frac"]]
+        max_area = owner_area * cls["hold_any_max_area_ratio"]
+
+        def candidate(d):
+            if "bbox" not in d:
+                return False
+            bx1, by1, bx2, by2 = d["bbox"]
+            if max(1.0, (bx2 - bx1) * (by2 - by1)) > max_area:
+                return False
+            return iou_ratio(d["bbox"], upper) >= cls["hold_iou_min"]
+
         for d in dets:
-            if (d.get("label") in cls["hold_classes"] and "bbox" in d
-                    and d.get("conf", 0) >= cls["hold_conf_min"]):
-                if iou_ratio(d["bbox"], owner_box) >= cls["hold_iou_min"]:
-                    return d["label"], d.get("conf", 0)
+            if (d.get("label") in cls["hold_classes"]
+                    and d.get("conf", 0) >= cls["hold_conf_min"]
+                    and candidate(d)):
+                return d["label"], d.get("conf", 0)
         if cls.get("hold_any_class"):
-            x1, y1, x2, y2 = owner_box
-            upper = [x1, y1, x2, y1 + (y2 - y1) * cls["hold_any_top_frac"]]
-            owner_area = max(1.0, (x2 - x1) * (y2 - y1))
             for d in dets:
-                if d.get("label") == "person" or "bbox" not in d:
+                if d.get("label") == "person":
                     continue
                 if d.get("conf", 0) < cls["hold_any_min_conf"]:
                     continue
-                bx1, by1, bx2, by2 = d["bbox"]
-                obj_area = max(1.0, (bx2 - bx1) * (by2 - by1))
-                if obj_area > owner_area * cls.get("hold_any_max_area_ratio", 0.6):
-                    continue  # 全画面误检框(如"train"), 不是手中物
-                if iou_ratio(d["bbox"], upper) >= cls["hold_iou_min"]:
+                if candidate(d):
                     return f"obj:{d['label']}", d.get("conf", 0)
         return None, 0.0
 
@@ -195,6 +213,9 @@ class HRIStateMachine:
         if dist_w is not None and self.prev_dist_raw is not None:
             dt = max(1e-3, now - getattr(self, "_last_t", now))
             approach_mps = (self.prev_dist_raw - dist_w) / dt
+            ema = p["metric"]["v_ema"]
+            self.v_sm = (ema * approach_mps + (1 - ema) * self.v_sm
+                         if self.v_sm is not None else approach_mps)
         held, held_conf = None, 0.0
         bend = False
         if evidence_ok and self.sm_area is not None:
@@ -214,6 +235,19 @@ class HRIStateMachine:
                 self.upright_run += 1
                 if self.upright_run >= p["timing"]["bend_rearm_frames"]:
                     self.bend_armed = True
+        # 手持物: 需连续命中 held_min_hits 帧才武装, 之后 latch 窗口内保持
+        if held:
+            self.held_last_t = now
+            self.held_hits += 1
+            if self.held_hits >= p["classes"]["held_min_hits"]:
+                self.held_label, self.held_conf = held, held_conf
+                self.held_armed_until = now + p["classes"]["held_latch_s"]
+        else:
+            self.held_hits = 0
+        if now < self.held_armed_until:
+            held, held_conf = self.held_label, self.held_conf
+        else:
+            held, held_conf = None, 0.0
         self._raw_cx = cx
         self.prev_dist_raw = dist_w
 
@@ -241,18 +275,21 @@ class HRIStateMachine:
         speed_ok = dist_ok and approach_mps is not None
         if dist_ok:
             dcx_m = dcx * dist_sm / p["camera"]["focal_px"]
-            static_now = dcx_m < p["metric"]["static_disp_m"]
+            v_now = approach_mps if approach_mps is not None else 0.0
+            static_now = (dcx_m < p["metric"]["static_disp_m"]
+                          and abs(v_now) < p["metric"]["static_v_mps"])
             wake_now = dcx_m > p["metric"]["wake_disp_m"]
         else:
             static_now = disp < p["pixel"]["static_disp_px"]
             wake_now = dcx > p["pixel"]["wake_disp_px"]
-        # 距离闸用宽度反推(姿态免疫): 弯腰只改高度不改肩宽
-        near = (dist_ok and dist_sm <= p["metric"]["near_dist_m"]) or clipped
+        # 弯腰距离闸单独放宽(需全身可见才判姿态, 裁切时不判, 故不用 clipped 兜底)
+        near_bend = dist_ok and dist_sm <= p["metric"]["bend_near_dist_m"]
+        v_sm = self.v_sm if self.v_sm is not None else (approach_mps or 0.0)
         if speed_ok:
-            fast = approach_mps >= p["metric"]["approach_fast_mps"]
-            slow = (p["metric"]["approach_slow_mps"] <= approach_mps
+            fast = approach_mps >= p["metric"]["approach_fast_mps"]  # 用原始速度抓尖峰
+            slow = (p["metric"]["approach_slow_mps"] <= v_sm
                     < p["metric"]["approach_fast_mps"])
-            receding = approach_mps < -p["metric"]["recede_mps"]
+            receding = v_sm < -p["metric"]["recede_mps"]
         else:
             fast = rate > p["pixel"]["approach_fast_rate"]
             slow = p["pixel"]["approach_slow_rate"] < rate <= p["pixel"]["approach_fast_rate"]
@@ -263,14 +300,14 @@ class HRIStateMachine:
         elif not static_now:
             self.static_since = None
 
-        # RECEIVE 超时以"最近一次有进展"为基准, 避免接近中被误判停滞
-        progressing = (approach_mps is not None and approach_mps > 0) or fast
+        # RECEIVE 超时以"最近一次有意义的进展"为基准(>recede 阈), 避免抖动刷计时
+        progressing = fast or v_sm > p["metric"]["recede_mps"]
         if progressing:
             self.last_progress_t = now
 
         s = self.state
         approaching_fast = evidence_ok and fast
-        bend_go = (bend and near and self.bend_armed
+        bend_go = (bend and near_bend and self.bend_armed
                    and now >= self.receive_cooldown_until)
         held_go = (held and slow and now >= self.receive_cooldown_until)
         offering = evidence_ok and (held_go or bend_go)
@@ -303,19 +340,31 @@ class HRIStateMachine:
             else:
                 act = "BACK_OFF"
         elif s == "RECEIVE":
-            if owner is None or receding:
+            if owner is None:
                 self.receive_cooldown_until = now + p["timing"]["receive_cooldown_s"]
-                self._set_state("WAIT", "交接完成/主人离开")
-            elif now - self.last_progress_t > p["timing"]["receive_timeout_s"]:
-                self.receive_cooldown_until = now + p["timing"]["receive_cooldown_s"]
-                self._set_state("WAIT", "逼近停滞/已到位")
+                self._set_state("WAIT", "主人离开")
+            elif now - self.state_since < p["timing"]["dwell_s"]:
+                act = "APPROACH"  # 最小驻留, 不被首帧噪声踢出
+            elif receding:
+                self.recede_since = self.recede_since or now
+                if now - self.recede_since >= p["metric"]["receive_exit_s"]:
+                    self.receive_cooldown_until = now + p["timing"]["receive_cooldown_s"]
+                    self._set_state("WAIT", "交接完成(持续后退)")
+                else:
+                    act = "APPROACH"
             else:
-                act = "APPROACH"
+                self.recede_since = None
+                if now - self.last_progress_t > p["timing"]["receive_timeout_s"]:
+                    self.receive_cooldown_until = now + p["timing"]["receive_cooldown_s"]
+                    self._set_state("WAIT", "逼近停滞/已到位")
+                else:
+                    act = "APPROACH"
         self.send_cmd(act)
         return {"state": self.state, "action": act, "disp": round(disp, 1),
                 "dcx": round(dcx, 1), "rate": round(rate, 3),
                 "dist_m": round(dist_sm, 2) if dist_sm else None,
-                "v_mps": round(approach_mps, 2) if approach_mps is not None else None,
+                "v_mps": round(v_sm, 2),
+                "v_raw": round(approach_mps, 2) if approach_mps is not None else None,
                 "held": held, "bend": bend,
                 "mode": "clip" if clipped else ("metric" if dist_ok else "pixel")}
 

@@ -427,7 +427,20 @@ fetch('/gimbal',{{method:'POST',headers:{{'Content-Type':'application/json'}},bo
 const pad=document.getElementById('gpad'),knob=document.getElementById('gknob');
 let dragging=false,ox=0,oy=0,kx=0,ky=0;
 setInterval(()=>{{if(dragging&&curMode==='manual')g({{pan:kx*0.12,tilt:ky*0.12}})}},100);
-document.getElementById('gcenter').addEventListener('pointerdown',e=>{{e.preventDefault();g('center')}});
+document.getElementById('gcenter').addEventListener('pointerdown',e=>{{e.preventDefault();centerRamp()}});
+function centerRamp(){{
+ // 回中改为小步渐变(复用拖拽路径): 避免两舵机同时大跳导致电流尖峰/过冲堵转
+ if(curMode!=='manual')return;
+ let i=0;
+ const timer=setInterval(()=>{{
+  if(curMode!=='manual'){{clearInterval(timer);return;}}
+  const dp=Math.sign({PAN_CENTER}-gpos.pan)*Math.min(5,Math.abs({PAN_CENTER}-gpos.pan));
+  const dt=Math.sign({TILT_CENTER}-gpos.tilt)*Math.min(5,Math.abs({TILT_CENTER}-gpos.tilt));
+  if(dp===0&&dt===0){{clearInterval(timer);return;}}
+  g({{pan:dp,tilt:dt}});
+  if(++i>=40)clearInterval(timer);
+ }},120);
+}}
 pad.addEventListener('pointerdown',e=>{{e.preventDefault();if(curMode!=='manual')return;dragging=true;ox=e.clientX-kx;oy=e.clientY-ky;pad.setPointerCapture(e.pointerId)}});
 pad.addEventListener('pointermove',e=>{{if(!dragging)return;kx=Math.max(-40,Math.min(40,e.clientX-ox));ky=Math.max(-40,Math.min(40,e.clientY-oy));knob.style.transform='translate('+kx+'px,'+ky+'px)'}});
 function endDrag(){{dragging=false;kx=0;ky=0;knob.style.transform='translate(0,0)'}}
