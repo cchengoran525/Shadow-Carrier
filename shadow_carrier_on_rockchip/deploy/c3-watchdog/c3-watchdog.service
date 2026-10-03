@@ -1,0 +1,12 @@
+[Unit]
+Description=C3 USB watchdog (auto-recover ESP32-C3 USB link without replug)
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/c3_watchdog.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

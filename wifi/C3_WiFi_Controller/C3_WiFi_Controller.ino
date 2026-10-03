@@ -8,6 +8,13 @@
  *    改完跑 `tools/check_firmware_sync.sh`(不一致会退出 1) 或 `--fix` 同步。
  * ⚠️ WiFi 传输为实验链路: 使用前需给 rk_control.py 加 TCP 客户端;
  *    编译不要带 CDCOnBoot=cdc(否则 Serial 日志写满会阻塞 loop)。
+ *
+ * === 状态: 已冻结, 勿烧录 (2026-10-03) ===
+ * 机主拍板: WiFi 传输路线不推进。原因: 2026-10-03 舵机事故根因判定为
+ * 舵机堵转电流冲击导致 C3 USB 掉线(硬件/电源侧), 换传输无法规避;
+ * 该原因已由 [云台] 6e6e809 修复(gaze 越界 → 端点堵转 + 全局限位/斜坡)。
+ * 本目录仅为存档; 保留 tools/check_firmware_sync.sh 守卫共享源不分叉。
+ * 若 USB 枚举问题反复出现, demo 后按 EXCHANGE 记录重新评估启用。
  */
 #include <WiFi.h>
 #include "CommandParser.h"
