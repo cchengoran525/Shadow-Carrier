@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/time.h>
+#include <time.h>
 #include "yolov8.h"
 #include "image_utils.h"
 #include "file_utils.h"
@@ -23,6 +24,13 @@ static double now_ms() {
     struct timeval tv;
     gettimeofday(&tv, NULL);
     return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
+}
+
+// A3.5: 单调时钟(ms), 不受系统时间跳变影响, 供消费方做时间对齐
+static long long now_mono_ms() {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long long)ts.tv_sec * 1000LL + ts.tv_nsec / 1000000LL;
 }
 
 int main(int argc, char **argv) {
@@ -70,6 +78,8 @@ int main(int argc, char **argv) {
         double t1 = now_ms();
         ret = read_image(line, &src);
         double t_read = now_ms() - t1;
+        double t_cap = now_ms();          // A3.5: 采集代理时刻(读完帧)
+
         if (ret != 0) {
             fprintf(stderr, "{\"error\":\"read_fail\"}\n");
             fflush(stderr);
@@ -107,7 +117,9 @@ int main(int argc, char **argv) {
                 t_read, t_infer, t_write);
 
         // JSON输出到 stderr (隔离的协议通道)
-        fprintf(stderr, "{\"frame\":%d,\"ms\":%.1f,\"count\":%d,\"det\":[", fid++, t_infer, od.count);
+        // A3.5: 增加 ts(epoch ms, 采集代理) 与 t_mono(单调 ms) 供时间对齐; 原有字段不变
+        fprintf(stderr, "{\"frame\":%d,\"ts\":%.0f,\"t_mono\":%lld,\"ms\":%.1f,\"count\":%d,\"det\":[",
+                fid++, t_cap, now_mono_ms(), t_infer, od.count);
         for (int i = 0; i < od.count; i++) {
             object_detect_result *d = &(od.results[i]);
             if (i > 0) fprintf(stderr, ",");
