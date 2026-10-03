@@ -93,6 +93,9 @@ class ShadowCarrierSimulation:
     def _new_state_machine(self):
         params = hri_state.load_params()
         params["paths"]["grid_json"] = str(self.grid_path)
+        # 用仿真相机真实焦距覆盖标定值, 让距离/速度阈值在仿真里也成立
+        params["camera"]["focal_px"] = (self.camera.getWidth() / 2.0) / math.tan(
+            self.camera.getFov() / 2.0)
         return hri_state.HRIStateMachine(
             send_cmd_fn=self._on_hri_action,
             log_fn=print,

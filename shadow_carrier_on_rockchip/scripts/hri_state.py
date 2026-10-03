@@ -93,7 +93,6 @@ class HRIStateMachine:
         self.send_cmd = send_cmd_fn or (lambda cmd: None)
         self.log = log_fn
         cam = self.p["camera"]
-        self.K = (cam.get("focal_px", 0) * cam.get("person_height_m", 0)) or 0
         self.Kw = (cam.get("focal_px", 0) * cam.get("shoulder_width_m", 0)) or 0
         self.state = "FOLLOW"
         self.state_since = time.time()
@@ -189,8 +188,13 @@ class HRIStateMachine:
         clipped = h >= clip_h
 
         disp = rate = dcx = 0.0
-        approach_mps = None
         dist_w = self.Kw / w if self.Kw else None
+        # 接近速率不受自运动门控: RECEIVE 会亲自驱动车前进,
+        # 若被门控屏蔽, 动作本身会把自己判成"停滞"而提前放弃。
+        approach_mps = None
+        if dist_w is not None and self.prev_dist_raw is not None:
+            dt = max(1e-3, now - getattr(self, "_last_t", now))
+            approach_mps = (self.prev_dist_raw - dist_w) / dt
         held, held_conf = None, 0.0
         bend = False
         if evidence_ok and self.sm_area is not None:
@@ -198,8 +202,6 @@ class HRIStateMachine:
             disp = ((cx - self.sm_cx) ** 2 + (cy - self.sm_cy) ** 2) ** 0.5
             dcx = abs(cx - getattr(self, "_raw_cx", cx))
             rate = (area / self.sm_area - 1.0) / dt
-            if dist_w is not None and self.prev_dist_raw is not None:
-                approach_mps = (self.prev_dist_raw - dist_w) / dt
             held, held_conf = self._held_object(dets, owner["bbox"])
             if self.base_asp and not clipped:
                 bend = self.sm_asp < self.base_asp * (1 - p["ratios"]["bend"])
