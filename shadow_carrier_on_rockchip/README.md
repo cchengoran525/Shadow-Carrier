@@ -58,12 +58,12 @@ arduino-cli compile --fqbn "esp32:esp32:esp32c3:CDCOnBoot=cdc" shadow_carrier_on
 以下内容是当前版本的已知限制，记录用于排查和后续收敛，不代表已经修复：
 
 1. **C3 工程存在两份副本。** 当前 RK3566 USB 路径应使用 `C3_USB_Controller/`；`communication/` 是早期重复工程，不支持最新的 `DIFF` 差速命令，且目录名与 `.ino` 主文件名不一致，不能直接按 Arduino CLI 的目录规则编译。
-2. **USB 串口恢复还不完整。** `rk_control.py` 默认打开 `/dev/ttyACM0`，虽然支持 `--uart` 参数，但当前进程启动时只尝试打开一次；设备后续拔插不会自动重新建立连接。
+2. **USB 串口恢复：枚举卡死已有看门狗，掉电型仍需电源侧。** 10-03 起 `deploy/c3-watchdog/` 每 3s 检查，异常连续 2 次自动 `usbreset`（已实测恢复枚举卡死）；但 **C3 完全掉电消失**这类软件救不了，仍需独立供电/加电容。
 3. **串口健康检查还不完整。** RK 后台线程会排空 C3 的 USB CDC 输出，避免 CDC 缓冲区堵塞，但会丢弃 `PONG` 等诊断内容。`/ping` 目前只能说明文件描述符存在，不能证明命令已经得到 C3 响应。
 4. **视觉管线依赖 RK 本机资产。** `video_stream_v7.py` 使用 RK 上的绝对路径启动 `yolo_daemon` 和 `.rknn` 模型；仓库本身不包含编译产物和模型，换一块 RK 板不能直接运行。
 5. **原生 C++ 感知模块仍是占位实现。** `perception/camera.cpp` 和 `perception/yolov8.cpp` 的 V4L2/NPU 接口仍保留 TODO；当前实际运行的是 Python 推流脚本加外部 YOLO daemon。
 6. **配置文件与实际运行入口尚未统一。** `config/settings.yaml` 仍保留 `/dev/ttyUSB0` 和 `binary` 协议字段，但当前 `rk_control.py` 使用 `/dev/ttyACM0` 和 ASCII 文本命令，而且没有读取这份 YAML。
-7. **跟随控制目前主要使用横向位置。** `TARGET_BBOX_H`、`DIST_DEADBAND`、`MIN_BBOX_H`、`FWD_SPD` 等参数在当前控制循环中没有形成完整的距离控制闭环；控制周期和注释中的研究参数也仍在迭代。
+7. **跟随控制目前主要使用横向位置。** `TARGET_BBOX_H`、`DIST_DEADBAND`、`MIN_BBOX_H`、`FWD_SPD` 等参数在当前控制循环中没有形成完整的距离控制闭环；控制周期和注释中的研究参数也仍在迭代。**10-03 仿真/真机观察验证：恒速跟随在主人静止时会持续顶上去（无距离保持），主人消失后仍满速前进**——需加"bbox 宽度/面积超阈值→STOP"兜底，或引入 MPU 航向/里程闭环。
 8. **超声波保护有强制解除路径。** 无回波累计或障碍锁定超过最大时长后，传感器状态会被强制清除，目的是防止永久锁死，但这不等于确认前方安全。测试时仍应保留人工 STOP 入口，并让车轮离地。
 9. **部署地址和引脚说明仍有局部不一致。** RK 控制页面里存在固定视频地址，云台脚本的注释与实际 GPIO4_A6/A7 配置也需要以当前 RK 板卡接线为准。
 
@@ -101,8 +101,14 @@ WiFi 断开重连后，Safari 有时显示"无连接"，需杀掉标签页重开
 | 相机内参标定 (旋转扫描自标定 fx=508) + 方位解码 (0.08°) | ✅ state/calib/ |
 | 极坐标世界网格 grid.json v1 (PnP标定, 距离误差中位3.23%) | ✅ 板上 world_lab/fusion/, 待入仓 |
 | YOLO-World 开放词汇慢语义环 (v2s INT8 板端NPU) | ✅ 08-29 跑通(沙箱runtime), 测速/嵌入缓存待做 |
-| HRI 行为状态机 (FOLLOW/WAIT/HIDE/RECEIVE/YIELD) | 🔧 骨架过假数据自测 + 黑匣子日志; 待实机联调 |
+| HRI 行为状态机 (FOLLOW/WAIT/HIDE/RECEIVE/YIELD) | 🔧 骨架+黑匣子+动作层; Webots 全场景跑通, 真机 A1.1 重测中 |
 | 蓝牙锁主 | 🔧 BLE心跳就绪(手环9已打通), 视觉认主v0实测通过, 详见 decision/README.md 认主章节 |
+| 地面复标@112 + 俯仰悬案裁定 (生产测距 ≤2%) | ✅ 10-03, world_lab/fusion/calib_prod.json (Tier1b 已知距离实物法) |
+| A3.5 帧时间戳 (ts/t_mono/age_ms, /api/detections 纯增量) | ✅ 10-03, 解锁 tracker M2 时间对齐与 age 感知 |
+| 滚动地图 (grid.json `map{doors,free_sectors}`, TTL 30s) | ✅ 10-03, HIDE 零延迟主路径; 扫掠降兜底 |
+| Webots 数字孪生仿真台 (离线端到端, 意图驱动) | ✅ 10-03, 全场景自动测试跑通 (Windows 有 GPU 环境) |
+| C3 USB 看门狗 (免物理插拔恢复枚举卡死) | ✅ deploy/c3-watchdog/, 有界诚实(掉电型仍需电源侧) |
+| 舵机安全加固 (指令限位 15–165° + 步进斜坡) | ✅ 10-03 事故后全链路加固 6e6e809 |
 
 ## 今日踩坑 (2026-08-07)
 

@@ -81,9 +81,21 @@
 | `fusion/fusion_test.py` | YOLO+OpenCV 单帧融合 |
 | `photos/` | 基准照片 + 各轮标注图 |
 
+## 当前状态 (2026-10-03)
+
+> ⚠️ 本目录是迁入 git 的**早期版本**。板上 `~/world_lab/` 是活跃开发版，README/CALIBRATION 更新更全；
+> 生产者文件（`geometry_daemon.py` / `polar_mapper.py` / `geometry_map.py` / `calib_prod.json` / `CALIBRATION.md`）
+> **目前仅在板上、尚未入仓（A3.1 待办）**。
+
+- **grid.json v1 已交付**（冻结接口 [世界]→[HRI]）：`objects[]{cls,conf,bearing_deg,dist_m,...}` + `grid_polar[3][8]` + `free_directions_deg` + `map{doors,free_sectors,...}`
+- **三层架构合体**：yolov8n（快）+ hough（门几何）+ YOLO-World（慢语义，开放词汇，板端 NPU）
+- **极坐标映射**：PnP 标定链 + 一键 `auto_calib_pose.py`；生产角 tilt=112 地面复标后**测距 ≤2%**（Tier1b 已知距离实物法，`calib_prod.json`）
+- **滚动地图**：`geometry_map.py` 被动累积门/物体/自由扇区 → `/dev/shm/world_map.json`，HIDE 零延迟主路径；扫掠降兜底
+- **俯仰悬案已裁定**：112=几何水平正确（桌面 116.4 系未摆平）；跟随 production 固定 112，V0.2 抬摄像头后再议工作角
+
 ## 下一步
 
-1. 融合 60s 压测 + 帧错位量化
-2. 地面单应标定（相机俯角）→ 极坐标网格替换图像网格
-3. YOLO-World 转换上板测速（PC 侧环境）
-4. geometry_daemon 常驻化 → 产出 grid.json → 交 [HRI]
+1. **[A3.1] 把板上生产文件迁入 git**（geometry_daemon / polar_mapper / geometry_map / calib_prod / CALIBRATION.md）——冻结接口不能没有源码备份
+2. Tier4 三方距离互校（PnP vs tracker `dist_m` vs 超声），等 [云台] tracker 上机
+3. 与 [HRI] 联合验证 HIDE 选点（滚动地图路径）
+4. （P2，冻结后）光流桥 daemon 接口、pose 接入 geometry_daemon、调度器落地
