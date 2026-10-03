@@ -31,6 +31,11 @@ daemon = None
 daemon_lock = threading.Lock()
 stop_flag = False
 
+# A3.5: 帧时间戳透传(增量, 不影响既有字段)
+latest_ts = 0.0          # epoch ms (daemon 采集代理)
+latest_t_mono = 0        # 单调 ms (daemon)
+latest_recv_mono = 0     # 本进程收到该帧时的单调 ms (用于算 age)
+
 inflight = 0
 inflight_cond = threading.Condition()
 last_json_t = time.time()  # 心跳: consumer更新, watchdog检查
@@ -148,6 +153,7 @@ def producer(cam_id):
 def consumer():
     """结果线程: 阻塞readline收JSON(高效) + 推流"""
     global latest_jpeg, latest_dets, fps, frame_count, daemon, inflight, last_json_t
+    global latest_ts, latest_t_mono, latest_recv_mono
     ftimes = []
     last_t = time.time()
     while not stop_flag:
@@ -184,6 +190,9 @@ def consumer():
             continue
         with lock:
             latest_dets = result.get("det", [])
+            latest_ts = result.get("ts", 0.0)
+            latest_t_mono = result.get("t_mono", 0)
+            latest_recv_mono = time.monotonic() * 1000.0
         try:
             with open(OUT_IMAGE, 'rb') as f:
                 jpeg = f.read()
@@ -230,9 +239,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             with lock, stats_lock:
+                age_ms = round(time.monotonic() * 1000.0 - latest_recv_mono, 1) if latest_recv_mono else None
                 self.wfile.write(json.dumps({
                     "fps": round(fps,1), "frames": frame_count,
                     "detections": latest_dets,
+                    "ts": latest_ts, "t_mono": latest_t_mono, "age_ms": age_ms,
                     "stats": dict(stats)
                 }).encode())
 
