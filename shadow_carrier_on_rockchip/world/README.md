@@ -79,13 +79,25 @@
 | `regression.py` | 验收脚本（基准 8 张照片） |
 | `offline_door_test.py / _v2.py` | v1/v2 历史版本（留档） |
 | `fusion/fusion_test.py` | YOLO+OpenCV 单帧融合 |
+| `fusion/geometry_daemon.py` | 世界快照生成（once/loop/scan，三源融合，grid.json 生产者）|
+| `fusion/geometry_map.py` | 滚动地图（HIDE 数据供给，TTL 30s）|
+| `fusion/polar_mapper.py` | 像素↔极坐标（射线-地面求交，显式 tilt_deg）|
+| `fusion/auto_calib_pose.py` | PnP 扫掠一键标定（H(tilt)/俯角拟合）|
+| `fusion/solve_desk_pose.py` / `validate_desk.py` | 单次位姿反解 / 棋盘精度验证 |
+| `fusion/of_bridge.py` | 光流桥原型（YOLO 抽帧↔光流插值，录制/评测）|
+| `fusion/pose_server.cc` | YOLOv8-Pose 旁路服务（派生 facing/offering，纳秒触发）|
+| `fusion/calib_prod.json` | **生产位姿经验标定**（Tier1b 已知距离三点：h=148mm/tilt=0.43°，距离 ≤2%）|
+| `fusion/calib_pose.json` | PnP 扫掠拟合结果（地面 128~140）|
+| `CALIBRATION.md` | **标定总纲**（四层触发流程/工具/验收/原则）|
+| `DEPLOY_A35.md` | yolo_daemon 时间戳部署 runbook |
+| `polar_mapper.py` / `selftest_polar.py` | 映射模块根副本 + 数学自检 |
 | `photos/` | 基准照片 + 各轮标注图 |
 
-## 当前状态 (2026-10-03)
+## 当前状态 (2026-10-04)
 
-> ⚠️ 本目录是迁入 git 的**早期版本**。板上 `~/world_lab/` 是活跃开发版，README/CALIBRATION 更新更全；
-> 生产者文件（`geometry_daemon.py` / `polar_mapper.py` / `geometry_map.py` / `calib_prod.json` / `CALIBRATION.md`）
-> **目前仅在板上、尚未入仓（A3.1 待办）**。
+> ✅ **A3.1 完成**：生产文件已全部入仓（本目录即源码备份，与板上 `~/world_lab/` 同步）：
+> `geometry_daemon.py` / `polar_mapper.py` / `geometry_map.py` / `auto_calib_pose.py` / `of_bridge.py` /
+> `pose_server.cc` / `calib_prod.json` / `calib_pose.json` / `CALIBRATION.md`（均在 `fusion/` 或本目录）
 
 - **grid.json v1 已交付**（冻结接口 [世界]→[HRI]）：`objects[]{cls,conf,bearing_deg,dist_m,...}` + `grid_polar[3][8]` + `free_directions_deg` + `map{doors,free_sectors,...}`
 - **三层架构合体**：yolov8n（快）+ hough（门几何）+ YOLO-World（慢语义，开放词汇，板端 NPU）
@@ -95,7 +107,8 @@
 
 ## 下一步
 
-1. **[A3.1] 把板上生产文件迁入 git**（geometry_daemon / polar_mapper / geometry_map / calib_prod / CALIBRATION.md）——冻结接口不能没有源码备份
+1. ~~**[A3.1] 把板上生产文件迁入 git**~~ ✅ 完成（2026-10-04）
 2. Tier4 三方距离互校（PnP vs tracker `dist_m` vs 超声），等 [云台] tracker 上机
-3. 与 [HRI] 联合验证 HIDE 选点（滚动地图路径）
+3. 与 [HRI] 联合验证 HIDE 选点（滚动地图路径）；已问 [HRI] 是否将选点升级为"亲和度打分取最大"（见 EXCHANGE 10-04 21:00）
 4. （P2，冻结后）光流桥 daemon 接口、pose 接入 geometry_daemon、调度器落地
+5. IMU 消费（[云台] 探通 MPU6050 后）：yaw rate → 极坐标航向/地图一致性（已提接口需求）

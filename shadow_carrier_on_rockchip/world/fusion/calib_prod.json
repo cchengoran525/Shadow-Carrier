@@ -1,0 +1,16 @@
+{
+  "_comment": "生产位姿经验标定 —— 由已知距离实物三点解算, 优先于 calib_pose.json 的 PnP 外推(仅在 tilt_cmd 匹配时生效)",
+  "method": "ground-truth 3-point (carton 0.60m / teddy 1.00m / teddy 1.40m), joint least-squares for (h, tilt)",
+  "tilt_cmd": 112.0,
+  "h_m": 0.148,
+  "tilt_deg": 0.43,
+  "points": [
+    {"object": "carton", "true_m": 0.6, "theta_deg": 13.40, "pred_m": 0.601},
+    {"object": "teddy", "true_m": 1.0, "theta_deg": 8.13, "pred_m": 0.983},
+    {"object": "teddy", "true_m": 1.4, "theta_deg": 5.50, "pred_m": 1.425}
+  ],
+  "residual_deg_max": 0.12,
+  "residual_pct_max": 1.8,
+  "source": "[世界] 10-03 地板实测; 相机光心高度实测约148mm(比 PnP 外推110mm高4cm, 机构摆动非线性)",
+  "validated": true
+}
