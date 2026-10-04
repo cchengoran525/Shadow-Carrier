@@ -1,0 +1,76 @@
+{"i":1} {"ts": 1677767500.000, "infer_ms": 276.0, "persons": [{"bbox": [456, 413, 516, 480], "conf": 0.839, "facing": "front", "offering": 0, "arms_raised": 0}, {"bbox": [9, 115, 355, 475], "conf": 0.832, "facing": "left", "offering": 0, "arms_raised": 0}]}
+
+{"i":2} {"ts": 1677767501.000, "infer_ms": 263.9, "persons": [{"bbox": [171, 113, 330, 205], "conf": 0.618, "facing": "front", "offering": 0, "arms_raised": 0}]}
+
+{"i":3} {"ts": 1677767502.000, "infer_ms": 263.0, "persons": [{"bbox": [458, 413, 516, 479], "conf": 0.839, "facing": "right", "offering": 0, "arms_raised": 0}, {"bbox": [0, 117, 288, 466], "conf": 0.808, "facing": "left", "offering": 0, "arms_raised": 0}]}
+
+{"i":4} {"ts": 1677767503.000, "infer_ms": 269.2, "persons": []}
+
+{"i":5} {"ts": 1677767504.000, "infer_ms": 257.6, "persons": [{"bbox": [458, 412, 516, 480], "conf": 0.839, "facing": "front", "offering": 0, "arms_raised": 0}, {"bbox": [0, 119, 285, 444], "conf": 0.754, "facing": "left", "offering": 0, "arms_raised": 0}]}
+
+{"i":6} {"ts": 1677767505.000, "infer_ms": 258.2, "persons": [{"bbox": [457, 413, 517, 480], "conf": 0.839, "facing": "front", "offering": 0, "arms_raised": 0}]}
+
+{"i":7} {"ts": 1677767506.000, "infer_ms": 266.6, "persons": [{"bbox": [458, 413, 516, 480], "conf": 0.839, "facing": "right", "offering": 0, "arms_raised": 0}]}
+
+{"i":8} {"ts": 1677767507.000, "infer_ms": 258.7, "persons": [{"bbox": [457, 413, 515, 480], "conf": 0.839, "facing": "right", "offering": 0, "arms_raised": 0}, {"bbox": [198, 7, 411, 465], "conf": 0.782, "facing": "left", "offering": 0, "arms_raised": 0}]}
+
+{"i":9} {"ts": 1677767508.000, "infer_ms": 275.8, "persons": [{"bbox": [244, 0, 495, 472], "conf": 0.904, "facing": "left", "offering": 0, "arms_raised": 0}, {"bbox": [486, 415, 517, 479], "conf": 0.559, "facing": "front", "offering": 0, "arms_raised": 0}]}
+
+{"i":10} {"ts": 1677767508.000, "infer_ms": 262.5, "persons": [{"bbox": [245, 0, 502, 476], "conf": 0.904, "facing": "front", "offering": 0, "arms_raised": 0}]}
+
+{"i":11} {"ts": 1677767509.000, "infer_ms": 256.5, "persons": [{"bbox": [228, 6, 481, 283], "conf": 0.889, "facing": "front", "offering": 0, "arms_raised": 0}]}
+
+{"i":12} {"ts": 1677767510.000, "infer_ms": 241.4, "persons": [{"bbox": [222, 1, 468, 472], "conf": 0.872, "facing": "front", "offering": 0, "arms_raised": 1}, {"bbox": [473, 413, 515, 479], "conf": 0.804, "facing": "right", "offering": 0, "arms_raised": 0}]}
+
+{"i":13} {"ts": 1677767511.000, "infer_ms": 260.5, "persons": [{"bbox": [212, 6, 462, 471], "conf": 0.889, "facing": "front", "offering": 0, "arms_raised": 0}, {"bbox": [473, 413, 516, 478], "conf": 0.804, "facing": "right", "offering": 0, "arms_raised": 0}]}
+
+{"i":14} {"ts": 1677767512.000, "infer_ms": 252.8, "persons": [{"bbox": [213, 3, 468, 473], "conf": 0.889, "facing": "front", "offering": 0, "arms_raised": 1}, {"bbox": [474, 412, 517, 479], "conf": 0.804, "facing": "right", "offering": 0, "arms_raised": 0}]}
+
+{"i":15} {"ts": 1677767513.000, "infer_ms": 233.9, "persons": [{"bbox": [289, 4, 456, 110], "conf": 0.723, "facing": "left", "offering": 0, "arms_raised": 0}]}
+
+{"i":16} {"ts": 1677767514.000, "infer_ms": 269.8, "persons": [{"bbox": [221, 7, 466, 472], "conf": 0.872, "facing": "left", "offering": 0, "arms_raised": 1}, {"bbox": [475, 412, 517, 479], "conf": 0.804, "facing": "right", "offering": 0, "arms_raised": 0}]}
+
+{"i":17} {"ts": 1677767515.000, "infer_ms": 257.8, "persons": [{"bbox": [220, 13, 457, 473], "conf": 0.889, "facing": "front", "offering": 0, "arms_raised": 0}, {"bbox": [467, 413, 517, 479], "conf": 0.804, "facing": "right", "offering": 0, "arms_raised": 0}]}
+
+{"i":18} {"ts": 1677767516.000, "infer_ms": 264.1, "persons": [{"bbox": [242, 47, 508, 476], "conf": 0.904, "facing": "left", "offering": 0, "arms_raised": 0}, {"bbox": [472, 413, 517, 480], "conf": 0.804, "facing": "right", "offering": 0, "arms_raised": 0}]}
+
+{"i":19} {"ts": 1677767517.000, "infer_ms": 266.1, "persons": [{"bbox": [233, 91, 428, 476], "conf": 0.872, "facing": "front", "offering": 0, "arms_raised": 0}, {"bbox": [460, 413, 515, 480], "conf": 0.804, "facing": "right", "offering": 0, "arms_raised": 0}]}
+
+{"i":20} {"ts": 1677767518.000, "infer_ms": 256.9, "persons": [{"bbox": [220, 88, 456, 475], "conf": 0.904, "facing": "front", "offering": 0, "arms_raised": 0}, {"bbox": [461, 413, 516, 479], "conf": 0.839, "facing": "right", "offering": 0, "arms_raised": 0}]}
+
+{"i":21} {"ts": 1677767518.000, "infer_ms": 257.6, "persons": [{"bbox": [234, 82, 476, 475], "conf": 0.904, "facing": "front", "offering": 0, "arms_raised": 0}, {"bbox": [460, 412, 517, 480], "conf": 0.839, "facing": "right", "offering": 0, "arms_raised": 0}]}
+
+{"i":22} {"ts": 1677767519.000, "infer_ms": 255.5, "persons": [{"bbox": [241, 93, 445, 475], "conf": 0.904, "facing": "front", "offering": 0, "arms_raised": 0}, {"bbox": [458, 413, 516, 480], "conf": 0.839, "facing": "front", "offering": 0, "arms_raised": 0}]}
+
+{"i":23} {"ts": 1677767520.000, "infer_ms": 259.2, "persons": [{"bbox": [227, 91, 447, 475], "conf": 0.904, "facing": "front", "offering": 0, "arms_raised": 0}, {"bbox": [460, 413, 515, 480], "conf": 0.839, "facing": "front", "offering": 0, "arms_raised": 0}]}
+
+{"i":24} {"ts": 1677767521.000, "infer_ms": 278.4, "persons": [{"bbox": [225, 95, 448, 475], "conf": 0.904, "facing": "front", "offering": 0, "arms_raised": 0}, {"bbox": [461, 412, 515, 480], "conf": 0.839, "facing": "front", "offering": 0, "arms_raised": 0}]}
+
+{"i":25} {"ts": 1677767522.000, "infer_ms": 269.1, "persons": [{"bbox": [457, 413, 516, 479], "conf": 0.839, "facing": "right", "offering": 0, "arms_raised": 0}, {"bbox": [193, 100, 450, 476], "conf": 0.782, "facing": "left", "offering": 0, "arms_raised": 0}]}
+
+{"i":26} {"ts": 1677767523.000, "infer_ms": 286.1, "persons": [{"bbox": [183, 89, 443, 476], "conf": 0.872, "facing": "left", "offering": 0, "arms_raised": 1}, {"bbox": [461, 413, 516, 479], "conf": 0.839, "facing": "right", "offering": 0, "arms_raised": 0}]}
+
+{"i":27} {"ts": 1677767524.000, "infer_ms": 199.5, "persons": [{"bbox": [286, 30, 433, 206], "conf": 0.872, "facing": "front", "offering": 0, "arms_raised": 0}]}
+
+{"i":28} {"ts": 1677767525.000, "infer_ms": 256.2, "persons": [{"bbox": [248, 1, 427, 476], "conf": 0.872, "facing": "front", "offering": 0, "arms_raised": 0}, {"bbox": [461, 413, 516, 479], "conf": 0.839, "facing": "right", "offering": 0, "arms_raised": 0}]}
+
+{"i":29} {"ts": 1677767526.000, "infer_ms": 287.6, "persons": [{"bbox": [251, 71, 524, 475], "conf": 0.904, "facing": "front", "offering": 0, "arms_raised": 0}, {"bbox": [469, 413, 517, 479], "conf": 0.839, "facing": "right", "offering": 0, "arms_raised": 0}]}
+
+{"i":30} {"ts": 1677767527.000, "infer_ms": 264.2, "persons": [{"bbox": [207, 105, 427, 411], "conf": 0.872, "facing": "left", "offering": 0, "arms_raised": 0}]}
+
+{"i":31} {"ts": 1677767528.000, "infer_ms": 263.4, "persons": [{"bbox": [196, 68, 478, 475], "conf": 0.904, "facing": "left", "offering": 0, "arms_raised": 0}, {"bbox": [461, 412, 516, 479], "conf": 0.839, "facing": "right", "offering": 0, "arms_raised": 0}]}
+
+{"i":32} {"ts": 1677767529.000, "infer_ms": 258.2, "persons": []}
+
+{"i":33} {"ts": 1677767529.000, "infer_ms": 272.4, "persons": [{"bbox": [238, 3, 462, 476], "conf": 0.853, "facing": "front", "offering": 0, "arms_raised": 0}, {"bbox": [457, 413, 515, 480], "conf": 0.839, "facing": "front", "offering": 0, "arms_raised": 0}]}
+
+{"i":34} {"ts": 1677767530.000, "infer_ms": 282.0, "persons": [{"bbox": [236, 61, 497, 475], "conf": 0.904, "facing": "front", "offering": 0, "arms_raised": 0}, {"bbox": [473, 412, 515, 479], "conf": 0.804, "facing": "right", "offering": 0, "arms_raised": 0}]}
+
+{"i":35} {"ts": 1677767531.000, "infer_ms": 260.5, "persons": [{"bbox": [195, 118, 420, 475], "conf": 0.904, "facing": "left", "offering": 0, "arms_raised": 0}, {"bbox": [458, 413, 515, 480], "conf": 0.839, "facing": "right", "offering": 0, "arms_raised": 0}]}
+
+{"i":36} {"ts": 1677767532.000, "infer_ms": 266.9, "persons": [{"bbox": [210, 94, 428, 475], "conf": 0.904, "facing": "front", "offering": 0, "arms_raised": 0}, {"bbox": [459, 413, 515, 480], "conf": 0.839, "facing": "right", "offering": 0, "arms_raised": 0}]}
+
+{"i":37} {"ts": 1677767533.000, "infer_ms": 276.0, "persons": [{"bbox": [246, 44, 478, 475], "conf": 0.904, "facing": "front", "offering": 0, "arms_raised": 0}, {"bbox": [458, 411, 516, 480], "conf": 0.839, "facing": "right", "offering": 0, "arms_raised": 0}]}
+
+{"i":38} {"ts": 1677767534.000, "infer_ms": 262.8, "persons": [{"bbox": [254, 46, 453, 476], "conf": 0.853, "facing": "front", "offering": 0, "arms_raised": 0}, {"bbox": [458, 412, 515, 480], "conf": 0.839, "facing": "front", "offering": 0, "arms_raised": 0}]}
+
