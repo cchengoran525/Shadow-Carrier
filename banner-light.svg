@@ -1,0 +1,143 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="400" viewBox="0 0 1280 400" role="img" aria-label="Shadow Carrier">
+  <title>Shadow Carrier</title>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FAF7F1"/>
+      <stop offset="0.5" stop-color="#F2EDE3"/>
+      <stop offset="1" stop-color="#E9E2D5"/>
+    </linearGradient>
+
+    <radialGradient id="halo" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#46B1A6" stop-opacity="0.16"/>
+      <stop offset="0.55" stop-color="#46B1A6" stop-opacity="0.05"/>
+      <stop offset="1" stop-color="#46B1A6" stop-opacity="0"/>
+    </radialGradient>
+
+    <linearGradient id="basket" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2C3B45"/>
+      <stop offset="1" stop-color="#1B262E"/>
+    </linearGradient>
+
+    <linearGradient id="bar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3FBFB2"/>
+      <stop offset="1" stop-color="#1F9C90"/>
+    </linearGradient>
+
+    <radialGradient id="vig" cx="0.5" cy="0.5" r="0.75">
+      <stop offset="0.55" stop-color="#8A7F6A" stop-opacity="0"/>
+      <stop offset="1" stop-color="#8A7F6A" stop-opacity="0.18"/>
+    </radialGradient>
+
+    <filter id="grain" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" stitchTiles="stitch"/>
+      <feColorMatrix type="saturate" values="0"/>
+    </filter>
+
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="10"/>
+    </filter>
+
+    <filter id="soft2" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="4"/>
+    </filter>
+  </defs>
+
+  <!-- ===== background ===== -->
+  <rect width="1280" height="400" fill="url(#bg)"/>
+  <ellipse cx="920" cy="210" rx="420" ry="230" fill="url(#halo)"/>
+
+  <!-- floor -->
+  <rect x="0" y="300" width="1280" height="1.6" fill="#C9C0AE"/>
+  <rect x="0" y="301" width="1280" height="26" fill="#46B1A6" opacity="0.04"/>
+
+  <!-- ===== giant shadow (the "shadow" it carries) ===== -->
+  <g opacity="0.32" filter="url(#soft)">
+    <path d="M 764 300 L 1058 300 L 1246 356 L 918 356 Z" fill="#4A4034"/>
+  </g>
+  <ellipse cx="906" cy="302" rx="176" ry="15" fill="#4A4034" opacity="0.28" filter="url(#soft)"/>
+
+  <!-- ===== motion streaks ===== -->
+  <g stroke="#1F9C90" stroke-linecap="round" opacity="0.45">
+    <path d="M 604 156 L 676 156" stroke-width="7"/>
+    <path d="M 636 190 L 700 190" stroke-width="5" opacity="0.75"/>
+    <path d="M 660 148 L 712 148" stroke-width="4" opacity="0.45"/>
+  </g>
+  <g stroke="#1B262E" stroke-linecap="round" opacity="0.2">
+    <path d="M 640 172 L 704 172" stroke-width="3"/>
+  </g>
+
+  <!-- ===== the cart ===== -->
+  <g>
+    <!-- wheels -->
+    <g>
+      <circle cx="1010" cy="268" r="42" fill="#141C22"/>
+      <circle cx="1010" cy="268" r="42" fill="none" stroke="#1F9C90" stroke-width="2.5" opacity="0.95"/>
+      <circle cx="1010" cy="268" r="15" fill="#5A6670"/>
+      <path d="M 1010 250 L 1010 262 M 1010 274 L 1010 286 M 992 268 L 1004 268 M 1016 268 L 1028 268"
+            stroke="#1F9C90" stroke-width="3" stroke-linecap="round" opacity="0.7"/>
+
+      <circle cx="784" cy="278" r="30" fill="#141C22"/>
+      <circle cx="784" cy="278" r="30" fill="none" stroke="#1F9C90" stroke-width="2.5" opacity="0.95"/>
+      <circle cx="784" cy="278" r="10" fill="#5A6670"/>
+    </g>
+
+    <!-- chassis -->
+    <rect x="750" y="228" width="308" height="22" rx="11" fill="#3A4750"/>
+
+    <!-- basket -->
+    <path d="M 748 132 L 1074 132 L 1040 232 L 786 232 Z" fill="url(#basket)"/>
+    <path d="M 748 132 L 1074 132" stroke="#4E5D68" stroke-width="4" stroke-linecap="round"/>
+    <!-- slats -->
+    <g stroke="#7FE3D8" stroke-width="3" stroke-linecap="round" opacity="0.3">
+      <path d="M 830 138 L 822 226"/>
+      <path d="M 892 138 L 888 226"/>
+      <path d="M 954 138 L 954 226"/>
+      <path d="M 1012 138 L 1018 226"/>
+    </g>
+
+    <!-- rim -->
+    <rect x="738" y="116" width="346" height="20" rx="10" fill="#5A6873"/>
+
+    <!-- grocery bag sticking out -->
+    <g>
+      <path d="M 906 118 L 906 94" stroke="#D9701E" stroke-width="4" stroke-linecap="round" fill="none"/>
+      <path d="M 890 118 L 890 70 L 978 70 L 978 118 Z" fill="#F0913E"/>
+      <path d="M 890 92 L 978 92" stroke="#1B262E" stroke-width="3" opacity="0.22"/>
+      <path d="M 934 70 L 934 52 L 962 52" stroke="#D9701E" stroke-width="4" stroke-linecap="round" fill="none"/>
+    </g>
+
+    <!-- light bar eyes -->
+    <rect x="766" y="158" width="78" height="17" rx="8.5" fill="#1F9C90" opacity="0.28" filter="url(#soft2)"/>
+    <rect x="766" y="158" width="78" height="17" rx="8.5" fill="url(#bar)"/>
+
+    <!-- sensor mast + dome -->
+    <path d="M 778 130 L 752 78" stroke="#5A6873" stroke-width="12" stroke-linecap="round"/>
+    <path d="M 752 78 L 752 60" stroke="#3A4750" stroke-width="20" stroke-linecap="round"/>
+    <circle cx="740" cy="48" r="31" fill="#2C3B45" stroke="#1B262E" stroke-width="5"/>
+    <path d="M 710 50 A 31 31 0 0 0 770 50 Z" fill="#111A20" opacity="0.9"/>
+    <circle cx="740" cy="42" r="5" fill="#F0913E"/>
+    <path d="M 716 30 A 31 31 0 0 1 764 30" fill="none" stroke="#FAF7F1" stroke-width="3" opacity="0.45" stroke-linecap="round"/>
+
+    <!-- scan arcs -->
+    <g fill="none" stroke="#1F9C90" stroke-width="3" stroke-linecap="round" opacity="0.5">
+      <path d="M 690 34 A 44 44 0 0 0 690 70"/>
+      <path d="M 668 22 A 62 62 0 0 0 668 82" opacity="0.5"/>
+    </g>
+  </g>
+
+  <!-- ===== wordmark ===== -->
+  <g font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="800" font-size="102" letter-spacing="-1">
+    <text x="72" y="204" fill="#E8873A" opacity="0.55" transform="translate(5,5)">SHADOW</text>
+    <text x="72" y="204" fill="#16232B">SHADOW</text>
+    <text x="72" y="304" fill="#E8873A" opacity="0.55" transform="translate(5,5)">CARRIER</text>
+    <text x="72" y="304" fill="#16232B">CARRIER</text>
+  </g>
+
+  <!-- orange rule -->
+  <rect x="74" y="340" width="112" height="9" fill="#E8873A"/>
+
+  <!-- ===== overlays ===== -->
+  <rect width="1280" height="400" fill="url(#vig)"/>
+  <rect width="1280" height="400" filter="url(#grain)" opacity="0.05" style="mix-blend-mode:multiply"/>
+</svg>

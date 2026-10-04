@@ -1,4 +1,8 @@
-![Shadow Carrier](docs/banner_v4.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="banner.svg">
+  <source media="(prefers-color-scheme: light)" srcset="banner-light.svg">
+  <img alt="Shadow Carrier" src="banner-light.svg" width="100%">
+</picture>
 
 # Shadow Carrier 逛街搭子
  
