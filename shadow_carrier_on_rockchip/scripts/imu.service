@@ -1,0 +1,14 @@
+[Unit]
+Description=ShadowCarrier IMU reader (MPU on KickPi I2C3 -> /dev/shm/imu.json)
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/kickpi/shadow_carrier_on_rockchip/scripts/imu_daemon.py --cal 2
+Restart=always
+RestartSec=3
+StandardOutput=append:/tmp/imu_daemon.log
+StandardError=append:/tmp/imu_daemon.log
+
+[Install]
+WantedBy=multi-user.target

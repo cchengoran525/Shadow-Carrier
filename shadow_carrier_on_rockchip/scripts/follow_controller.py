@@ -9,6 +9,9 @@ FCX = FW / 2
 ALPHA = 0.3           # EMA 平滑
 
 DIR_DEADBAND = 50     # 死区: ±50px内直走
+# 航向闭环 (IMU, 2026-10-04): 仅直行段生效, 压住开环走歪
+YAW_K = 2.0           # dps → 轮速差 增益
+YAW_CORR_MAX = 12     # 单轮最大修正量
 
 BASE_SPD = 100        # 基准前进速度
 MIN_SPD = 60          # 最小轮速 (一侧降到这个速度时已是急转)
@@ -29,12 +32,15 @@ DET_API = "http://127.0.0.1:8080/api/detections"
 # ============================
 
 class FollowController:
-    def __init__(self, send_cmd_fn, bearing_fn=None, person_provider=None):
+    def __init__(self, send_cmd_fn, bearing_fn=None, person_provider=None,
+                 yaw_rate_fn=None):
         # bearing_fn: [云台]线提供的"主人世界方位角(度)"只读回调。
         # 非None时转向误差用它(云台解耦), 否则退回原始bbox像素偏差。
         # person_provider: 仿真检测输入; 实机默认仍走 owner_id 认主链路。
+        # yaw_rate_fn: [云台]线IMU回调(度/秒, 逆时针为正); 直行段用于航向闭环纠偏。
         self.bearing_fn = bearing_fn
         self.person_provider = person_provider
+        self.yaw_rate_fn = yaw_rate_fn
         self.send_cmd = send_cmd_fn
         self.scx = FCX
         self.scy = FH / 2
@@ -218,8 +224,15 @@ class FollowController:
 
         # === 差速映射: 偏移→左右轮速 (v3原版, 距离由人自行掌握) ===
         if abs_off <= DIR_DEADBAND:
-            # 直走
+            # 直走 + 航向闭环(IMU): 压住开环走歪
             left = right = BASE_SPD
+            if self.yaw_rate_fn is not None:
+                yr = self.yaw_rate_fn()
+                if yr is not None:
+                    # yr>0 = 逆时针(左漂) → 需右修: 左轮快/右轮慢
+                    corr = max(-YAW_CORR_MAX, min(YAW_CORR_MAX, YAW_K * yr))
+                    left = int(max(20, min(130, BASE_SPD + corr)))
+                    right = int(max(20, min(130, BASE_SPD - corr)))
             self.last_turn_dir = None
         else:
             # 弧线: 一侧降速

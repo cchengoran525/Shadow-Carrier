@@ -51,6 +51,20 @@ def _get_owner_bearing():
     with owner_bearing_lock:
         return owner_bearing["theta"]
 
+def _get_yaw_rate():
+    """读 /dev/shm/imu.json 的 yaw_rate_dps (imu.service产出)。
+    数据过期(>0.5s)或质量差 → None (follow退回开环, 安全网)"""
+    try:
+        with open("/dev/shm/imu.json") as f:
+            d = json.load(f)
+        if time.monotonic() - float(d.get("ts", 0)) > 0.5:
+            return None
+        if float(d.get("quality", 1)) < 0.5:
+            return None
+        return float(d["yaw_rate_dps"])
+    except Exception:
+        return None
+
 uart_fd = None
 uart_lock = threading.Lock()
 mode = "manual"
@@ -165,7 +179,7 @@ def _follow_loop():
     global fc
     try:
         from follow_controller import FollowController
-        fc = FollowController(uart_send)
+        fc = FollowController(uart_send, yaw_rate_fn=_get_yaw_rate)
         if not fc.start():
             # 机主原则: 认主失败拒绝跟随, 模式退回手动(凝视线随之退出)
             print("[follow] 认主失败, 跟随未启动")
