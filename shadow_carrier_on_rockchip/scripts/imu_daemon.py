@@ -31,7 +31,8 @@ REG_PWR = 0x6B
 
 GYRO_LSB_PER_DPS = 131.0   # ±250 dps 档
 ALPHA = 0.35               # EMA 低通
-YAW_LEAK = 0.99995         # 极慢泄漏, 限制积分漂移
+YAW_LEAK = 1.0             # 纯积分(不泄漏): 靠上电零偏校准压漂移;
+                           # 长期绝对航向会漂(~0.04dps≈2.4°/min), 需定期归零/温补(未来)
 
 
 class _i2c_msg(ctypes.Structure):
