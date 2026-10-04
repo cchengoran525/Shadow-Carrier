@@ -16,11 +16,11 @@ DEFAULT_PARAMS = os.path.join(SCRIPT_DIR, "hri_params.json")
 
 DEFAULTS = {
     "camera": {"focal_px": 508.0, "person_height_m": 1.65,
-               "frame_h": 480, "clip_ratio": 0.9, "shoulder_width_m": 0.45},
+               "frame_h": 480, "clip_ratio": 0.95, "shoulder_width_m": 0.45},
     "metric": {"static_disp_m": 0.08, "static_v_mps": 0.15,
                "wake_disp_m": 0.40, "near_dist_m": 1.2,
                "bend_near_dist_m": 2.5, "receive_exit_s": 0.8,
-               "v_ema": 0.4,
+               "v_ema": 0.4, "v_max_mps": 2.5,
                "approach_fast_mps": 0.8, "approach_slow_mps": 0.15,
                "recede_mps": 0.05},
     "pixel": {"static_disp_px": 15, "wake_disp_px": 40, "near_h_px": 300,
@@ -33,12 +33,16 @@ DEFAULTS = {
                "owner_lost_abort_s": 2.0},
     "classes": {"owner_conf_min": 0.5,
                 "hold_classes": ["bottle", "cup", "wine glass", "banana",
-                                 "apple", "orange", "handbag", "backpack"],
-                "hold_iou_min": 0.05, "hold_conf_min": 0.35,
-                "held_latch_s": 1.5, "held_min_hits": 2,
+                                 "apple", "orange", "handbag", "backpack",
+                                 "teddy bear", "suitcase"],
+                "hold_iou_min": 0.05, "hold_conf_min": 0.30,
+                "held_latch_s": 1.5, "held_min_hits": 1,
                 "hold_any_class": True, "hold_any_min_conf": 0.5,
-                "hold_any_top_frac": 0.45, "hold_any_max_area_ratio": 0.3},
+                "hold_any_top_frac": 0.45, "hold_any_max_area_ratio": 0.3,
+                "hold_named_max_area_ratio": 0.6},
     "paths": {"grid_json": "~/world_lab/fusion/grid.json"},
+    "pose": {"enabled": False, "json": "/dev/shm/pose_out.json",
+             "max_age_s": 1.5, "iou_min": 0.1},
 }
 
 
@@ -79,12 +83,20 @@ def pick_safe_spot(grid_path):
     age = time.time() - g.get("ts", 0)
     if age > 300:
         return None, f"grid过期{age:.0f}s"
+    # [世界] 交互亲和度打分(优先): 仅 confident 且最优分为正时采用, 否则回退
+    sc = g.get("sector_scores") or {}
+    if sc.get("confident") and (sc.get("best_score") or 0) > 0 \
+            and sc.get("best_bearing_deg") is not None:
+        return sc["best_bearing_deg"], f"sector_score:{sc['best_score']:.2f}"
+    # 回退: 门优先 -> 自由方向 (兼容 objects[]/free_directions_deg 与 map{})
     doors = [o for o in g.get("objects", [])
              if "door" in o.get("cls", "").lower()]
+    if not doors:
+        doors = [dict(d, cls="door") for d in (g.get("map", {}) or {}).get("doors", [])]
     if doors:
         d = min(doors, key=lambda o: abs(o.get("bearing_deg", 180)))
-        return d["bearing_deg"], f"door:{d['cls']}@{d['dist_m']:.1f}m"
-    free = g.get("free_directions_deg") or []
+        return d["bearing_deg"], f"door@{d.get('dist_m', -1)}m"
+    free = g.get("free_directions_deg") or (g.get("map", {}) or {}).get("free_sectors") or []
     if free:
         b = min(free, key=lambda x: abs(x))
         return b, "free"
@@ -140,14 +152,45 @@ class HRIStateMachine:
         return time.time() - self.state_since >= self.p["timing"]["dwell_s"]
 
     def _pick_owner(self, dets, score_fn):
-        best, best_s = None, self.p["classes"]["owner_conf_min"]
+        cands = []
+        floor = self.p["classes"]["owner_conf_min"]
         for d in dets:
             if d.get("label") != "person":
                 continue
             s = score_fn(d) if score_fn else d.get("conf", 0)
-            if s > best_s:
-                best, best_s = d, s
+            if s > floor:
+                cands.append((s, d))
+        if not cands:
+            return None
+        best_s = max(s for s, _ in cands)
+        # 连续性优先: 分数接近的候选里, 选离上一帧主人中心最近的, 避免双人跳变
+        near = [(s, d) for s, d in cands if s >= best_s - 0.15]
+        last_cx = getattr(self, "last_owner_cx", None)
+        if last_cx is not None and len(near) > 1:
+            best = min(near, key=lambda t: abs((t[1]["bbox"][0] + t[1]["bbox"][2]) / 2 - last_cx))[1]
+        else:
+            best = max(near, key=lambda t: t[0])[1]
+        self.last_owner_cx = (best["bbox"][0] + best["bbox"][2]) / 2
         return best
+
+    def _pose_offering(self, owner_box, now):
+        """[世界] pose_server v2 的 offering 作为 OR 辅助通道(默认关)."""
+        cfg = self.p.get("pose", {})
+        if not cfg.get("enabled"):
+            return False
+        try:
+            with open(os.path.expanduser(cfg["json"])) as f:
+                po = json.load(f)
+        except (OSError, ValueError):
+            return False
+        if now - (po.get("ts", 0)) > cfg.get("max_age_s", 1.5):
+            return False
+        for p in po.get("persons", []):
+            if not p.get("offering") or p.get("facing") != "front":
+                continue
+            if iou_ratio(p.get("bbox", [0, 0, 0, 0]), owner_box) >= cfg.get("iou_min", 0.1):
+                return True
+        return False
 
     def _held_object(self, dets, owner_box):
         """具名类别优先, 再走类别无关关系判据; 两者都要求:
@@ -156,20 +199,22 @@ class HRIStateMachine:
         x1, y1, x2, y2 = owner_box
         owner_area = max(1.0, (x2 - x1) * (y2 - y1))
         upper = [x1, y1, x2, y1 + (y2 - y1) * cls["hold_any_top_frac"]]
-        max_area = owner_area * cls["hold_any_max_area_ratio"]
+        max_area_named = owner_area * cls.get("hold_named_max_area_ratio", 0.6)
+        max_area_any = owner_area * cls["hold_any_max_area_ratio"]
 
-        def candidate(d):
+        def in_region(d, region, max_area):
             if "bbox" not in d:
                 return False
             bx1, by1, bx2, by2 = d["bbox"]
             if max(1.0, (bx2 - bx1) * (by2 - by1)) > max_area:
                 return False
-            return iou_ratio(d["bbox"], upper) >= cls["hold_iou_min"]
+            return iou_ratio(d["bbox"], region) >= cls["hold_iou_min"]
 
         for d in dets:
+            # 具名类: 整个人框范围(支持"手提袋挂在身侧"这种真实姿态), 面积<=0.6x主人
             if (d.get("label") in cls["hold_classes"]
                     and d.get("conf", 0) >= cls["hold_conf_min"]
-                    and candidate(d)):
+                    and in_region(d, owner_box, max_area_named)):
                 return d["label"], d.get("conf", 0)
         if cls.get("hold_any_class"):
             for d in dets:
@@ -177,7 +222,7 @@ class HRIStateMachine:
                     continue
                 if d.get("conf", 0) < cls["hold_any_min_conf"]:
                     continue
-                if candidate(d):
+                if in_region(d, upper, max_area_any):
                     return f"obj:{d['label']}", d.get("conf", 0)
         return None, 0.0
 
@@ -217,6 +262,8 @@ class HRIStateMachine:
         if dist_w is not None and self.prev_dist_raw is not None:
             dt = max(1e-3, now - getattr(self, "_last_t", now))
             approach_mps = (self.prev_dist_raw - dist_w) / dt
+            vmax = p["metric"].get("v_max_mps", 2.5)   # 夹掉双人跳变造成的爆表速度
+            approach_mps = max(-vmax, min(vmax, approach_mps))
             ema = p["metric"]["v_ema"]
             self.v_sm = (ema * approach_mps + (1 - ema) * self.v_sm
                          if self.v_sm is not None else approach_mps)
@@ -314,7 +361,9 @@ class HRIStateMachine:
         bend_go = (bend and near_bend and self.bend_armed
                    and now >= self.receive_cooldown_until)
         held_go = (held and slow and now >= self.receive_cooldown_until)
-        offering = evidence_ok and (held_go or bend_go)
+        pose_go = (evidence_ok and now >= self.receive_cooldown_until
+                   and self._pose_offering(owner["bbox"], now))
+        offering = evidence_ok and (held_go or bend_go or pose_go)
         if s == "FOLLOW":
             if evidence_ok and static_now:
                 if now - self.static_since >= p["timing"]["static_need_s"] and self._dwell_ok():
@@ -326,7 +375,12 @@ class HRIStateMachine:
                 if bend_go and not held:
                     self.bend_armed = False
                 self.receive_cooldown_until = now + p["timing"]["receive_cooldown_s"]
-                why = "弯腰姿态" if (bend_go and not held) else f"持物靠近 {held}:{held_conf:.2f}"
+                if pose_go and not held and not bend_go:
+                    why = "pose offering"
+                elif bend_go and not held:
+                    why = "弯腰姿态"
+                else:
+                    why = f"持物靠近 {held}:{held_conf:.2f}"
                 self.last_progress_t = now
                 self._set_state("RECEIVE", why)
             elif wake_now and not held and not bend and self._dwell_ok():
@@ -410,7 +464,9 @@ def run_live(params_path=None):
     sm = HRIStateMachine(log_fn=log_and_record, params=params)
     while True:
         try:
-            out = sm.feed(load_dets_api())
+            dets = load_dets_api()
+            out = sm.feed(dets)
+            out = {**out, "dets": [[d["label"], round(d["conf"], 2)] for d in dets]}
             logfile.write(json.dumps(
                 {"t": round(time.time() - t0, 2), "type": "frame", **out},
                 ensure_ascii=False) + "\n")

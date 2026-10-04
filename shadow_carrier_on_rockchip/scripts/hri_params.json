@@ -4,7 +4,7 @@
     "focal_px": 508.0,
     "person_height_m": 1.65,
     "frame_h": 480,
-    "clip_ratio": 0.9,
+    "clip_ratio": 0.95,
     "shoulder_width_m": 0.45,
     "_src": "fx=508 来自 [云台] 内参互证(2026-08-27); 高度为成人默认, 可按主人实测覆盖"
   },
@@ -15,7 +15,7 @@
     "near_dist_m": 1.2,
     "bend_near_dist_m": 2.5,
     "receive_exit_s": 0.8,
-    "v_ema": 0.4,
+    "v_ema": 0.4, "v_max_mps": 2.5,
     "approach_fast_mps": 0.8,
     "approach_slow_mps": 0.15,
     "recede_mps": 0.05
@@ -45,17 +45,25 @@
   },
   "classes": {
     "owner_conf_min": 0.5,
-    "hold_classes": ["bottle", "cup", "wine glass", "banana", "apple", "orange", "handbag", "backpack"],
+    "hold_classes": ["bottle", "cup", "wine glass", "banana", "apple", "orange", "handbag", "backpack", "teddy bear", "suitcase"],
     "hold_iou_min": 0.05,
-    "hold_conf_min": 0.35,
+    "hold_conf_min": 0.30,
     "held_latch_s": 1.5,
-    "held_min_hits": 2,
+    "held_min_hits": 1,
     "hold_any_class": true,
     "hold_any_min_conf": 0.5,
     "hold_any_top_frac": 0.45,
-    "hold_any_max_area_ratio": 0.3
+    "hold_any_max_area_ratio": 0.3,
+    "hold_named_max_area_ratio": 0.6
   },
   "paths": {
     "grid_json": "~/world_lab/fusion/grid.json"
+  },
+  "pose": {
+    "enabled": false,
+    "_doc": "开=消费 [世界] pose_server v2 的 offering 作为 RECEIVE OR 辅助通道(需 pose_server 在跑; 会占 NPU, 慎开)",
+    "json": "/dev/shm/pose_out.json",
+    "max_age_s": 1.5,
+    "iou_min": 0.1
   }
 }
