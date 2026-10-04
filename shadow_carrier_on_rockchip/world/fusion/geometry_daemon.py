@@ -24,6 +24,7 @@ import polar_mapper as pm
 import door_v3
 import params as P
 import geometry_map
+import sector_score
 
 BASE_CTRL = "http://127.0.0.1:80"
 BASE_STREAM = "http://127.0.0.1:8080"
@@ -340,6 +341,7 @@ def main():
         m = geometry_map.RollingMap.load(MAP_PATH).update(snap)
         m.save(MAP_PATH)
         snap["map"] = m.summary()
+        snap["sector_scores"] = sector_score.score_map(snap["map"])
         with open(os.path.join(OUT, "grid.json"), "w") as f:
             json.dump(snap, f, ensure_ascii=False, indent=1)
         cv2.imwrite(os.path.join(OUT, "topdown.png"), draw_topdown(snap))
@@ -393,6 +395,7 @@ def main():
         m = geometry_map.RollingMap.load(MAP_PATH).update(snap)
         m.save(MAP_PATH)
         snap["map"] = m.summary()
+        snap["sector_scores"] = sector_score.score_map(snap["map"])
         with open(os.path.join(OUT, "grid.json"), "w") as f:
             json.dump(snap, f, ensure_ascii=False, indent=1)
         cv2.imwrite(os.path.join(OUT, "topdown.png"), draw_topdown(snap))
@@ -423,6 +426,7 @@ def main():
                 m.update(snap)
                 m.save(MAP_PATH)
                 snap["map"] = m.summary()
+                snap["sector_scores"] = sector_score.score_map(snap["map"])
                 snap["timing_ms"]["door_interval_s"] = door_interval
                 with open(os.path.join(OUT, "grid.json.tmp"), "w") as f:
                     json.dump(snap, f, ensure_ascii=False, indent=1)
