@@ -65,6 +65,71 @@ def _get_yaw_rate():
     except Exception:
         return None
 
+# ====== 转身到角度 (IMU闭环, 供 [HRI] 动作层) ======
+turn_state = {"active": False, "target": None, "yaw": None, "err": None,
+              "started": 0.0, "result": "idle"}
+turn_lock = threading.Lock()
+TURN_TOL_DEG = 3.0      # 到位判定
+TURN_TIMEOUT_S = 10.0   # 超时保护
+TURN_DIFF = 40          # 转向差速量
+
+def _read_yaw():
+    """读积分航向 yaw_deg (逆时针为正); 过期/无效返回 None"""
+    try:
+        with open("/dev/shm/imu.json") as f:
+            d = json.load(f)
+        if time.monotonic() - float(d.get("ts", 0)) > 0.5:
+            return None
+        if float(d.get("quality", 1)) < 0.5:
+            return None
+        return float(d["yaw_deg"])
+    except Exception:
+        return None
+
+def _turn_worker(deg, spd):
+    y0 = _read_yaw()
+    t0 = time.monotonic()
+    with turn_lock:
+        turn_state.update(active=True, target=round(y0 + deg, 2), yaw=round(y0, 2),
+                          err=round(deg, 2), started=t0, result="running")
+    try:
+        while time.monotonic() - t0 < TURN_TIMEOUT_S:
+            y = _read_yaw()
+            if y is None:
+                with turn_lock: turn_state["result"] = "imu_lost"
+                break
+            err = turn_state["target"] - y          # >0 = 需要逆时针(左转)
+            with turn_lock:
+                turn_state.update(yaw=round(y, 2), err=round(err, 2))
+            if abs(err) < TURN_TOL_DEG:
+                with turn_lock: turn_state["result"] = "ok"
+                break
+            hi = min(255, spd + TURN_DIFF)
+            lo = max(0, spd - TURN_DIFF)
+            # 逆时针(左)=左轮慢右轮快
+            if err > 0:
+                uart_send(f"DIFF L{lo} R{hi}")
+            else:
+                uart_send(f"DIFF L{hi} R{lo}")
+            time.sleep(0.1)
+        else:
+            with turn_lock: turn_state["result"] = "timeout"
+    finally:
+        uart_send("STOP")
+        with turn_lock:
+            turn_state["active"] = False
+        print(f"[turn] 结束: {turn_state['result']} yaw={turn_state['yaw']}")
+
+def _turn_start(deg, spd=110):
+    if _get_mode() != "manual":      # follow 模式由 follow 循环掌控底盘
+        return False
+    if turn_state.get("active"):
+        return False
+    if _read_yaw() is None:          # IMU 不可用则拒绝(宁缺毋滥)
+        return False
+    threading.Thread(target=_turn_worker, args=(deg, spd), daemon=True).start()
+    return True
+
 uart_fd = None
 uart_lock = threading.Lock()
 mode = "manual"
@@ -365,6 +430,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/': self._page()
         elif self.path == '/ping': self._json({"uart": uart_fd is not None, "mode": _get_mode()})
         elif self.path == '/mode': self._json({"mode": _get_mode()})
+        elif self.path == '/turn/status': self._json(turn_state)
         else: self.send_response(302); self.send_header('Location','/'); self.end_headers()
     def do_POST(self):
         if self.path == '/move':
@@ -392,6 +458,21 @@ class Handler(BaseHTTPRequestHandler):
             ok = gimbal_center_ramp()
             self._text("OK" if ok else "FAIL")
             return
+        if self.path == '/turn':
+            try:
+                cl = int(self.headers.get('Content-Length', 0))
+                body = json.loads(self.rfile.read(cl)) if cl else {}
+                deg = float(body.get('deg', 0))
+                spd = int(body.get('speed', 110))
+                if _turn_start(deg, spd):
+                    self._json({"ok": True, "state": turn_state})
+                else:
+                    self._json({"ok": False, "state": turn_state,
+                                "error": "busy / imu unavailable / follow mode"})
+                return
+            except Exception:
+                self.send_response(400); self._text('BAD')
+                return
         r = {'/forward':'MOVE F 180','/back':'MOVE B 180','/left':'MOVE L 150','/right':'MOVE R 150','/stop':'STOP'}
         if self.path in r:
             self._text("OK" if uart_send(r[self.path]) else "FAIL")
