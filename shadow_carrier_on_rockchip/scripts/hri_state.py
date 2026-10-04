@@ -43,6 +43,8 @@ DEFAULTS = {
     "paths": {"grid_json": "~/world_lab/fusion/grid.json"},
     "pose": {"enabled": False, "json": "/dev/shm/pose_out.json",
              "max_age_s": 1.5, "iou_min": 0.1},
+    "owner": {"source": "none", "file": "/dev/shm/owner.json",
+              "max_age_s": 1.0, "iou_min": 0.2},
 }
 
 
@@ -152,7 +154,35 @@ class HRIStateMachine:
     def _dwell_ok(self):
         return time.time() - self.state_since >= self.p["timing"]["dwell_s"]
 
+    def _owner_box_from_file(self, now):
+        """[认主] 跨进程共享的主人框: /dev/shm/owner.json = {ts, bbox, score?} (可选源)"""
+        cfg = self.p.get("owner", {})
+        if cfg.get("source") != "file":
+            return None
+        try:
+            with open(os.path.expanduser(cfg["file"])) as f:
+                o = json.load(f)
+        except (OSError, ValueError):
+            return None
+        if now - o.get("ts", 0) > cfg.get("max_age_s", 1.0):
+            return None
+        return o.get("bbox")
+
     def _pick_owner(self, dets, score_fn):
+        floor = self.p["classes"]["owner_conf_min"]
+        # 优先: 认主共享的主人框(仅在其新鲜且能匹配上某个 person 时)
+        obox = self._owner_box_from_file(time.time())
+        if obox:
+            best, best_r = None, self.p.get("owner", {}).get("iou_min", 0.2)
+            for d in dets:
+                if d.get("label") != "person" or d.get("conf", 0) <= floor:
+                    continue
+                r = iou_ratio(d["bbox"], obox)
+                if r >= best_r:
+                    best, best_r = d, r
+            if best is not None:
+                self.last_owner_cx = (best["bbox"][0] + best["bbox"][2]) / 2
+                return best
         cands = []
         floor = self.p["classes"]["owner_conf_min"]
         for d in dets:

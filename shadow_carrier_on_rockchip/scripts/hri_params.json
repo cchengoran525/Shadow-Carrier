@@ -65,5 +65,12 @@
     "json": "/dev/shm/pose_out.json",
     "max_age_s": 1.5,
     "iou_min": 0.1
+  },
+  "owner": {
+    "source": "none",
+    "_doc": "source=file 时读 /dev/shm/owner.json = {ts, bbox} 锁定主人框(由 [认主] 进程写); none=回退最高分 person",
+    "file": "/dev/shm/owner.json",
+    "max_age_s": 1.0,
+    "iou_min": 0.2
   }
 }
