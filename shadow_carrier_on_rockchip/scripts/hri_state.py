@@ -37,7 +37,7 @@ DEFAULTS = {
                                  "teddy bear", "suitcase"],
                 "hold_iou_min": 0.05, "hold_conf_min": 0.30,
                 "held_latch_s": 1.5, "held_min_hits": 1,
-                "hold_any_class": True, "hold_any_min_conf": 0.5,
+                "hold_any_class": False, "hold_any_min_conf": 0.5,
                 "hold_any_top_frac": 0.45, "hold_any_max_area_ratio": 0.3,
                 "hold_named_max_area_ratio": 0.6},
     "paths": {"grid_json": "~/world_lab/fusion/grid.json"},
@@ -134,6 +134,7 @@ class HRIStateMachine:
         self.held_conf = 0.0
         self.v_sm = None
         self.recede_since = None
+        self.fast_run = 0
 
     # ---- 内部工具 ----
     def _set_state(self, new, reason=""):
@@ -337,7 +338,10 @@ class HRIStateMachine:
         near_bend = dist_ok and dist_sm <= p["metric"]["bend_near_dist_m"]
         v_sm = self.v_sm if self.v_sm is not None else (approach_mps or 0.0)
         if speed_ok:
-            fast = approach_mps >= p["metric"]["approach_fast_mps"]  # 用原始速度抓尖峰
+            thr = p["metric"]["approach_fast_mps"]
+            self.fast_run = self.fast_run + 1 if approach_mps >= thr else 0
+            # 需连续>=2帧(约0.6s)且平滑速度也够, 单帧宽度噪声过不了
+            fast = self.fast_run >= 2 and v_sm >= thr * 0.6
             slow = (p["metric"]["approach_slow_mps"] <= v_sm
                     < p["metric"]["approach_fast_mps"])
             receding = v_sm < -p["metric"]["recede_mps"]
