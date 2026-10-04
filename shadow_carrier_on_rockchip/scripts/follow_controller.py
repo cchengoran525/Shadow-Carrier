@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """follow_controller.py v4 - 差速弧线跟人 + 快速认主(颜色+体态, owner_id)"""
-import time, json, math, urllib.request
+import os, time, json, math, urllib.request
 
 # ========== 调参区 ==========
 FW, FH = 640, 480
@@ -29,6 +29,29 @@ BACK_SPD = 85
 BACK_MS = 0.25
 
 DET_API = "http://127.0.0.1:8080/api/detections"
+# ===== 跨进程主人框发布 (HRI A1.2 依赖, 2026-10-04) =====
+# 仅在模板匹配成功时写; 失配/丢失不写 → 文件自然过期, 消费方回退
+OWNER_JSON = "/dev/shm/owner.json"
+OWNER_JSON_MIN_INTERVAL = 0.2   # 最快发布间隔(秒)
+_last_publish = 0.0
+
+def _publish_owner(box):
+    """落盘主人框: {ts, bbox:[x1,y1,x2,y2]}, 原子替换避免消费方读到半截"""
+    global _last_publish
+    now = time.time()
+    if now - _last_publish < OWNER_JSON_MIN_INTERVAL:
+        return
+    _last_publish = now
+    try:
+        tmp = OWNER_JSON + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump({"ts": round(now, 3),
+                       "bbox": [round(float(box["x1"]), 1), round(float(box["y1"]), 1),
+                                round(float(box["x2"]), 1), round(float(box["y2"]), 1)]}, f)
+        os.replace(tmp, OWNER_JSON)
+    except Exception as e:
+        print(f"[follow] owner.json publish error: {e}")
+# ============================
 # ============================
 
 class FollowController:
@@ -139,6 +162,7 @@ class FollowController:
                     # 机主原则(2026-08-28 定稿): 模板失配 = 画面里没有可信的主人
                     # → 返回None走丢失流程(wait_owner/lost_stop), 绝不转投路人
                     return None
+                _publish_owner(box)   # 发布给 HRI 等消费方(纯新增)
                 cx = (box["x1"] + box["x2"]) / 2
                 cy = (box["y1"] + box["y2"]) / 2
                 if self.tracker is None:

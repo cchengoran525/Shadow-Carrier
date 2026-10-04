@@ -327,3 +327,11 @@ PHONE_MAC 首次使用流程: 手机连热点 → 日志会打印所有关联站
 - **根因**：bbox 测距两次翻车后回滚恒速（见上方修复史 #6），把"停车等待 / 距离保持"一并丢了。
 - **兜底建议**：bbox 宽度/面积超阈值 → STOP；或引入 MPU 航向 + 里程闭环。**更新 10-04**：IMU 已接入（KickPi I2C3），直行段航向保持已上线（`follow_controller` yaw_rate_fn）；距离保持兜底仍待做。
 - **相关修复**：HRI 侧 RECEIVE/YIELD 在主人消失后卡死已修（`7c2b989`，owner-lost → WAIT）。
+
+## 跨进程主人框发布 (2026-10-04, HRI A1.2 依赖)
+
+- `follow_controller._publish_owner(box)`：主人模板匹配成功时原子落盘
+  `/dev/shm/owner.json = {"ts": epoch, "bbox": [x1,y1,x2,y2]}`，最小间隔 0.2s
+- 语义：**失配/丢失不写** → 文件自然过期，消费方（HRI `owner.source=file`）
+  超时回退"最高分 person"，不会看到"猜的主人"
+- 原冻结接口 `owner_score(person)->float` 作废（跨进程无法导入），改文件方案
