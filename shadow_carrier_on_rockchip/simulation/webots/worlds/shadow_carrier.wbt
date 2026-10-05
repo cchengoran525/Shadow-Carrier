@@ -180,6 +180,46 @@ DEF OWNER Solid {
   }
 }
 
+# 双人场景路人 (A1.2 owner.json 锁主验收): 蓝色, 默认停在远处不可见
+DEF PASSERBY Solid {
+  translation 100 0 100
+  name "simulated passerby"
+  model "person"
+  recognitionColors [ 0.16 0.34 0.82 ]
+  children [
+    Pose {
+      translation 0 0.92 0
+      children [ Shape { appearance PBRAppearance { baseColor 0.16 0.34 0.82 roughness 0.7 } geometry Box { size 0.48 0.78 0.30 } } ]
+    }
+    Pose {
+      translation 0 1.48 0
+      children [ Shape { appearance PBRAppearance { baseColor 0.88 0.67 0.48 roughness 0.8 } geometry Sphere { radius 0.16 } } ]
+    }
+    Pose {
+      translation -0.14 0.30 0
+      children [ Shape { appearance PBRAppearance { baseColor 0.20 0.20 0.24 } geometry Box { size 0.17 0.60 0.22 } } ]
+    }
+    Pose {
+      translation 0.14 0.30 0
+      children [ Shape { appearance PBRAppearance { baseColor 0.20 0.20 0.24 } geometry Box { size 0.17 0.60 0.22 } } ]
+    }
+    Pose {
+      translation -0.31 0.91 0
+      rotation 0 0 1 -0.15
+      children [ Shape { appearance PBRAppearance { baseColor 0.88 0.67 0.48 } geometry Box { size 0.13 0.64 0.14 } } ]
+    }
+    Pose {
+      translation 0.31 0.91 0
+      rotation 0 0 1 0.15
+      children [ Shape { appearance PBRAppearance { baseColor 0.88 0.67 0.48 } geometry Box { size 0.13 0.64 0.14 } } ]
+    }
+  ]
+  boundingObject Pose {
+    translation 0 0.83 0
+    children [ Box { size 0.62 1.66 0.38 } ]
+  }
+}
+
 DEF OFFER_OBJECT Solid {
   translation 100 0.9 100
   name "simulated hand object"

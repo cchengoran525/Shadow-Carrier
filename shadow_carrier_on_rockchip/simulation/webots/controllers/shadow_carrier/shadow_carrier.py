@@ -14,8 +14,13 @@ from controller import Supervisor
 
 PROJECT_DIR = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(PROJECT_DIR / "scripts"))
+sys.path.insert(0, str(PROJECT_DIR / "world" / "fusion"))
 import hri_state
 from follow_controller import FollowController
+try:
+    import sector_score   # [世界] HIDE 亲和度纯函数, 仿真 grid 快照直接复用真实现
+except ImportError:
+    sector_score = None
 
 
 TIMEOUT_S = 0.45
@@ -59,6 +64,9 @@ class ShadowCarrierSimulation:
         self.owner_node = self.robot.getFromDef("OWNER")
         self.owner_translation = self.owner_node.getField("translation")
         self.owner_start = list(self.owner_translation.getSFVec3f())
+        self.passerby_node = self.robot.getFromDef("PASSERBY")
+        self.passerby_translation = self.passerby_node.getField("translation")
+        self.passerby_visible = False
         self.bottle_node = self.robot.getFromDef("OFFER_OBJECT")
         self.bottle_translation = self.bottle_node.getField("translation")
         self.bottle_hidden = list(self.bottle_translation.getSFVec3f())
@@ -88,6 +96,11 @@ class ShadowCarrierSimulation:
         self.PERSON_W, self.PERSON_H = 0.62, 1.66
         self._geom_warned = False
         self.grid_path = Path(tempfile.gettempdir()) / "shadow_carrier_webots_grid.json"
+        # A1.2 跨进程主人锁: 仿真 follow 侧发布 owner.json(格式与实机一致), HRI 侧消费
+        # macOS/Windows 无 /dev/shm, 落在临时目录; 消费代码路径与实机完全相同
+        self.owner_json_path = Path(tempfile.gettempdir()) / "shadow_carrier_webots_owner.json"
+        self._last_owner_pub = 0.0
+        self._last_ownerbox = None
         self._log_open()
         self.machine = self._new_state_machine()
         self.follower = FollowController(
@@ -96,7 +109,9 @@ class ShadowCarrierSimulation:
         )
         self.follower.start()
         print("[SIM] Webots adapter ready. HRI is on; use T to toggle it.")
-        print("[SIM] WASD drive, Space stop; I/K/J/L move owner; O offer object; H hide owner; R reset.")
+        print("[SIM] WASD drive, Space stop; I/K/J/L move owner; arrows move passerby, P toggle it;")
+        print("[SIM] O offer object; H hide owner; R reset. owner.json (A1.2 lock) is auto-published.")
+        print(f"[SIM] sector_score {'loaded' if sector_score is not None else 'NOT FOUND (grid falls back to door-first)'}")
         print("[SIM] ',' '.' pan; '-' '=' tilt. Commands follow the C3 450 ms timeout and ramp.")
         print(f"[SIM] geom_det={self.geom_det} fx={self.fx_px:.1f}")
         if self.autotest:
@@ -105,6 +120,14 @@ class ShadowCarrierSimulation:
 
     def _set_person(self, z):
         self.owner_node.getField("translation").setSFVec3f([0, 0, z])
+
+    def _set_passerby(self, position):
+        """None=藏到视野外, 否则 [x, z] 落位"""
+        self.passerby_visible = position is not None
+        if position is None:
+            self.passerby_translation.setSFVec3f([100, 0, 100])
+        else:
+            self.passerby_translation.setSFVec3f([position[0], 0, position[1]])
 
     def _set_object(self, offered, z):
         if offered:
@@ -137,6 +160,25 @@ class ShadowCarrierSimulation:
             self._set_person(z); self._set_object(True, z)
         elif t < 84:          # 主人消失: owner-lost / wait_owner
             self._set_person(100); self._set_object(False, 0)
+            self._set_passerby(None)
+        elif t < 88:          # 路人横穿入场(主人不在): owner.json 过期 → 降级选人(预期跟错为路人)
+            x = -3.2 + (t - 84) / 4.0 * 2.1
+            self._set_person(100); self._set_object(False, 0)
+            self._set_passerby((x, -1.2))
+        elif t < 91:          # 路人停近处静止, 主人仍未出现
+            self._set_person(100); self._set_object(False, 0)
+            self._set_passerby((-1.1, -1.2))
+        elif t < 97:          # 主人回到远处静止, 路人保持更近: owner.json 新鲜 → 必须锁主人(距离≈2.6 非 1.2)
+            self._set_person(-2.6); self._set_object(False, 0)
+            self._set_passerby((-1.1, -1.2))
+        elif t < 105:         # 主人持物缓慢靠近(路人保持更近): RECEIVE 且锁主不被路人劫走
+            z = -2.6 + (t - 97) / 8.0 * 1.3
+            self._set_person(z); self._set_object(True, z)
+            self._set_passerby((-1.1, -1.2))
+        elif t < 109:         # 主人持物后退: 交接完成 -> WAIT
+            z = -1.3 - (t - 105) / 4.0 * 0.6
+            self._set_person(z); self._set_object(True, z)
+            self._set_passerby((-1.1, -1.2))
         else:
             return True
         return False
@@ -150,6 +192,9 @@ class ShadowCarrierSimulation:
             self.camera.getFov() / 2.0)
         # 仿真人形肩宽(含手臂)≈0.62m, 与真机假设 0.45m 不同, 覆盖以让距离估计成立
         params["camera"]["shoulder_width_m"] = 0.62
+        # A1.2: 打开跨进程主人锁消费端(实机由 hri_params.json 的 owner.source 控制拨盘)
+        params["owner"]["source"] = "file"
+        params["owner"]["file"] = str(self.owner_json_path)
         return hri_state.HRIStateMachine(
             send_cmd_fn=self._on_hri_action,
             log_fn=self._hri_log,
@@ -200,7 +245,7 @@ class ShadowCarrierSimulation:
                 "dist_m": round(dist, 2)}
 
     def _refresh_grid(self):
-        """填 demo 全场景的语义快照: 门 + 景点(饮水机/冰箱/柜台)"""
+        """填 demo 全场景的语义快照: 门 + 景点(饮水机/冰箱/柜台) + sector_scores 亲和度"""
         objects = [o for o in (
             self._grid_object("SAFE_DOOR", "door"),
             self._grid_object("WATER_DISPENSER", "refrigerator"),
@@ -212,30 +257,67 @@ class ShadowCarrierSimulation:
             "objects": objects,
             "free_directions_deg": [-45, 45],
         }
+        if sector_score is not None:
+            # 与实机 sector_score.py 同一 schema: 产出 sector_scores 供 HIDE pick_safe_spot 消费
+            snapshot["sector_scores"] = sector_score.score_map({
+                "doors": [{"bearing_deg": o["bearing_deg"], "age_s": 0}
+                          for o in objects if "door" in o["cls"]],
+                "free_sectors": [{"bearing_deg": b, "age_s": 0}
+                                 for b in snapshot["free_directions_deg"]],
+                "objects": [{"cls": o["cls"], "bearing_deg": o["bearing_deg"], "age_s": 0}
+                            for o in objects],
+            })
         try:
             self.grid_path.write_text(json.dumps(snapshot), encoding="utf-8")
         except OSError as error:
             print(f"[SIM] grid snapshot unavailable: {error}")
 
+    def _publish_owner_json(self, bbox):
+        """仿真 follow 侧的主人锁发布, 镜像实机 follow_controller._publish_owner:
+        {ts, bbox} 原子替换, 限频 0.2s; 主人不可见时不写 → 文件自然过期, 消费方回退"""
+        now = time.time()
+        if now - self._last_owner_pub < 0.2:
+            return
+        self._last_owner_pub = now
+        self._last_ownerbox = [float(v) for v in bbox]
+        try:
+            tmp = self.owner_json_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"ts": round(now, 3),
+                                       "bbox": [round(float(v), 1) for v in bbox]}),
+                           encoding="utf-8")
+            os.replace(tmp, self.owner_json_path)
+        except OSError as error:
+            print(f"[SIM] owner.json publish error: {error}")
+
+    def _synthetic_box(self, node, w_m, h_m):
+        """3D 位置 + 针孔模型合成检测框; 深度窗外返回 None。
+        相机位置用假定原点(观察模式车应停在原点), 不读实际车位置——物理漂移不影响。
+        横向按 x/depth 投影像素偏移, 双人场景两个框才能真正分开。"""
+        _x, _y, z = node.getField("translation").getSFVec3f()
+        depth = -z  # 前方为 -z
+        if depth < 0.3 or depth > 6.0:
+            return None
+        bw = self.fx_px * w_m / depth
+        bh = self.fx_px * h_m / depth
+        cx, cy = self.camera.getWidth() / 2.0, self.camera.getHeight() / 2.0
+        cx += self.fx_px * (_x / depth)   # 车面朝 -z, 图像右 = 世界 +x
+        return [cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2]
+
     def _geom_detections(self):
-        """几何真值检测: 由 3D 位置 + 针孔模型合成框。
-        相机位置用假定原点(观察模式车应停在原点), 不读实际车位置——物理漂移不影响。"""
-        rz = 0.0
+        """几何真值检测: 主人 / 手持物 / 路人(可见时)"""
         out = []
         for label, node, w_m, h_m in (
                 ("person", self.owner_node, self.PERSON_W, self.PERSON_H),
-                ("bottle", self.bottle_node, 0.09, 0.22)):
+                ("bottle", self.bottle_node, 0.09, 0.22),
+                ("person", self.passerby_node, self.PERSON_W, self.PERSON_H)):
             if node is None:
                 continue
-            _x, _y, z = node.getField("translation").getSFVec3f()
-            depth = rz - z  # 前方为 -z
-            if depth < 0.3 or depth > 6.0:
+            if node is self.passerby_node and not self.passerby_visible:
                 continue
-            bw = self.fx_px * w_m / depth
-            bh = self.fx_px * h_m / depth
-            cx, cy = self.camera.getWidth() / 2.0, self.camera.getHeight() / 2.0
-            out.append({"label": label, "conf": 0.95,
-                        "bbox": [cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2]})
+            bbox = self._synthetic_box(node, w_m, h_m)
+            if bbox is None:
+                continue
+            out.append({"label": label, "conf": 0.95, "bbox": bbox})
         return out
 
     def _detections(self):
@@ -262,16 +344,46 @@ class ShadowCarrierSimulation:
             })
         return detections
 
+    def _owner_lock_box(self):
+        """仿真 follow 的认主结果: 恒等主人(模板匹配成功的化身), 与实机模板锁主对齐。
+        双人场景里路人再大再近也不影响这里——主/路人区分只由 OWNER 节点定义。"""
+        if self.geom_det:
+            return self._synthetic_box(self.owner_node, self.PERSON_W, self.PERSON_H)
+        return self._recognition_owner_box()
+
+    def _publish_owner_lock(self):
+        """镜像实机 follow 进程的发布行为: 模板锁住主人就写 owner.json (限频 0.2s)。
+        独立于 follower.tick() —— autotest 观察模式不 tick 跟随, 但锁发布照常。"""
+        bbox = self._owner_lock_box()
+        if bbox is not None:
+            self._publish_owner_json(bbox)
+
     def _follow_person(self):
-        person = next((d for d in self._detections() if d["label"] == "person"), None)
-        if person is None:
-            return None
-        x1, y1, x2, y2 = person["bbox"]
+        bbox = self._owner_lock_box()
+        if bbox is None:
+            return None   # 主人不可见: 不发布 → owner.json 过期, 消费方回退(与实机一致)
+        x1, y1, x2, y2 = bbox
         return {
             "cx": (x1 + x2) / 2,
             "cy": (y1 + y2) / 2,
             "h": y2 - y1,
         }
+
+    def _recognition_owner_box(self):
+        """Webots 识别模式: 主人由红色 recognitionColors (0.82 0.20 0.16) 认出"""
+        for item in self.camera.getRecognitionObjects():
+            label = (item.getModel() or "").strip().lower()
+            if label != "person":
+                continue
+            for color in item.getColors():
+                if all(abs(c - t) < 0.05 for c, t in zip(color, (0.82, 0.20, 0.16))):
+                    cx, cy = item.getPositionOnImage()
+                    width, height = item.getSizeOnImage()
+                    if width > 0 and height > 0:
+                        return [cx - width / 2, cy - height / 2,
+                                cx + width / 2, cy + height / 2]
+                    return None
+        return None
 
     def _set_targets(self, left_pwm, right_pwm):
         self.left_target = float(clamp(left_pwm, -255, 255))
@@ -433,6 +545,10 @@ class ShadowCarrierSimulation:
         elif key in (ord("i"), ord("I"), ord("k"), ord("K"),
                      ord("j"), ord("J"), ord("l"), ord("L")):
             self._move_owner(key)
+        elif key in (314, 315, 316, 317):   # Webots 方向键: 移动路人(双人场景)
+            self._move_passerby(key)
+        elif key in (ord("p"), ord("P")):
+            self._toggle_passerby()
         elif key in (ord("o"), ord("O")):
             self._toggle_bottle()
         elif key in (ord("h"), ord("H")):
@@ -471,6 +587,27 @@ class ShadowCarrierSimulation:
         self.owner_translation.setSFVec3f(current)
         self._sync_bottle(current)
 
+    def _move_passerby(self, key):
+        if not self.passerby_visible:
+            self._set_passerby((-1.1, -1.2))
+            print("[SIM] passerby shown near front")
+            return
+        current = list(self.passerby_translation.getSFVec3f())
+        delta = 0.14
+        if key == 315:      # up = 靠近
+            current[2] = min(current[2] + delta, 3.4)
+        elif key == 317:    # down = 远离
+            current[2] = max(current[2] - delta, -3.4)
+        elif key == 314:    # left
+            current[0] = max(current[0] - delta, -3.4)
+        elif key == 316:    # right
+            current[0] = min(current[0] + delta, 3.4)
+        self.passerby_translation.setSFVec3f(current)
+
+    def _toggle_passerby(self):
+        self._set_passerby(None if self.passerby_visible else (-1.1, -1.2))
+        print(f"[SIM] passerby {'hidden' if not self.passerby_visible else 'shown'}")
+
     def _sync_bottle(self, owner_position=None):
         if not self.bottle_visible:
             return
@@ -506,6 +643,8 @@ class ShadowCarrierSimulation:
         self.rotation_field.setSFRotation([0, 1, 0, 0])
         self.owner_visible = True
         self.owner_translation.setSFVec3f(self.owner_start)
+        self.passerby_visible = False
+        self.passerby_translation.setSFVec3f([100, 0, 100])
         self.bottle_visible = False
         self.bottle_translation.setSFVec3f(self.bottle_hidden)
         self.pan_motor.setPosition(0.0)
@@ -538,6 +677,14 @@ class ShadowCarrierSimulation:
                 if key > 0:
                     self._process_key(key)
 
+            if self.autotest and not self.autotest_motion:
+                # 观察模式: 物理漂移/接触冲量会把车推走(b5a0d78 首修, macOS 上仍复现),
+                # 每步钉回原点 —— 几何真值检测器的假定原点也依赖这一点
+                self.position_field.setSFVec3f([0, 0.06, 0])
+                self.rotation_field.setSFRotation([0, 0, 1, 0])
+
+            self._publish_owner_lock()   # 模拟 follow 进程持续发布主人锁(限频 0.2s)
+
             detections = self._detections()
             if self.geom_det and not detections and not self._geom_warned:
                 self._geom_warned = True
@@ -565,9 +712,13 @@ class ShadowCarrierSimulation:
                             self._drive_to_safe_target()
                     self._log({"type": "frame", **out,
                                "dets": [d["label"] for d in detections],
-                               "boxes": {d["label"]: [int(v) for v in d["bbox"]] for d in detections},
+                               "boxes": [[d["label"], [round(v) for v in d["bbox"]]]
+                                         for d in detections],
+                               "ownerbox": self._last_ownerbox,
                                "n_rec": len(self.camera.getRecognitionObjects()),
                                "owner": [round(v, 2) for v in self.owner_translation.getSFVec3f()],
+                               "passerby": [round(v, 2) for v in self.passerby_translation.getSFVec3f()]
+                                           if self.passerby_visible else None,
                                "robot": [round(v, 2) for v in self.self_node.getPosition()],
                                "sonar_cm": round(float(self.sonar.getValue()), 1)})
                 self.last_hri_tick = now
