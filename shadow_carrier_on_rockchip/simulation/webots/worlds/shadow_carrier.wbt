@@ -1,5 +1,9 @@
 #VRML_SIM R2025a utf8
 
+# Demo 场景: 宿舍走廊 —— 宿舍门(左墙) → 走廊尽头饮水机 → 隔壁冰箱(右墙)
+# 剧本: 跟出宿舍门 → 主人打水(静止) → 车躲到饮水机旁墙根(离门远) → 路人从宿舍门进来
+#       → 主人到隔壁冰箱拿东西递给车 → 一起回宿舍
+
 WorldInfo {
   basicTimeStep 8
   gravity 9.81
@@ -17,8 +21,8 @@ WorldInfo {
   ]
 }
 Viewpoint {
-  orientation 1 0 0 -0.62
-  position 0 4.8 6
+  orientation 1 0 0 -0.75
+  position 0 7.5 5.5
 }
 Background {
   skyColor [ 0.42 0.62 0.78 ]
@@ -28,6 +32,7 @@ DirectionalLight {
   intensity 0.9
 }
 
+# 走廊: x ∈ [-1.35, 1.35], z ∈ [-6, 6]; 主人从 +z 宿舍门走向 -z 尽头
 DEF FLOOR Solid {
   translation 0 -0.06 0
   name "floor"
@@ -35,77 +40,100 @@ DEF FLOOR Solid {
   children [
     Shape {
       appearance PBRAppearance { baseColor 0.78 0.81 0.79 roughness 0.92 }
-      geometry Box { size 16 0.12 16 }
+      geometry Box { size 2.9 0.12 12.4 }
     }
   ]
-  boundingObject Box { size 16 0.12 16 }
+  boundingObject Box { size 2.9 0.12 12.4 }
 }
 
-DEF BACK_WALL Solid {
-  translation 0 0.8 -4.05
-  name "back wall"
-  children [ Shape { appearance PBRAppearance { baseColor 0.72 0.75 0.76 } geometry Box { size 8 1.6 0.1 } } ]
-  boundingObject Box { size 8 1.6 0.1 }
-}
 DEF LEFT_WALL Solid {
-  translation -4.05 0.8 0
+  translation -1.4 1.2 0
   name "left wall"
-  children [ Shape { appearance PBRAppearance { baseColor 0.72 0.75 0.76 } geometry Box { size 0.1 1.6 8 } } ]
-  boundingObject Box { size 0.1 1.6 8 }
+  children [ Shape { appearance PBRAppearance { baseColor 0.72 0.75 0.76 } geometry Box { size 0.1 2.4 12.4 } } ]
+  boundingObject Box { size 0.1 2.4 12.4 }
 }
 DEF RIGHT_WALL Solid {
-  translation 4.05 0.8 0
+  translation 1.4 1.2 0
   name "right wall"
-  children [ Shape { appearance PBRAppearance { baseColor 0.72 0.75 0.76 } geometry Box { size 0.1 1.6 8 } } ]
-  boundingObject Box { size 0.1 1.6 8 }
+  children [ Shape { appearance PBRAppearance { baseColor 0.72 0.75 0.76 } geometry Box { size 0.1 2.4 12.4 } } ]
+  boundingObject Box { size 0.1 2.4 12.4 }
 }
-DEF FRONT_WALL Solid {
-  translation 0 0.8 4.05
-  name "front wall"
-  children [ Shape { appearance PBRAppearance { baseColor 0.72 0.75 0.76 } geometry Box { size 8 1.6 0.1 } } ]
-  boundingObject Box { size 8 1.6 0.1 }
+DEF END_WALL Solid {
+  translation 0 1.2 -6.05
+  name "end wall"
+  children [ Shape { appearance PBRAppearance { baseColor 0.72 0.75 0.76 } geometry Box { size 2.9 2.4 0.1 } } ]
+  boundingObject Box { size 2.9 2.4 0.1 }
+}
+DEF NEAR_WALL Solid {
+  translation 0 1.2 6.05
+  name "near wall"
+  children [ Shape { appearance PBRAppearance { baseColor 0.72 0.75 0.76 } geometry Box { size 2.9 2.4 0.1 } } ]
+  boundingObject Box { size 2.9 2.4 0.1 }
 }
 
-# Visible landmark consumed by the simulated HIDE grid snapshot.
-DEF SAFE_DOOR Solid {
-  translation 1.10 0 -3.30
-  name "safe door"
+# 宿舍门(左墙, z=+3): HIDE 网格的 "door" 地标, 路人从这里进走廊
+DEF DORM_DOOR Solid {
+  translation -1.3 0 3.0
+  name "dorm door"
   model "door"
   recognitionColors [ 0.12 0.46 0.78 ]
   children [
     Pose {
-      translation -0.48 0.95 0
-      children [ Shape { appearance PBRAppearance { baseColor 0.12 0.46 0.78 } geometry Box { size 0.08 1.9 0.10 } } ]
+      translation 0 0.95 -0.55
+      children [ Shape { appearance PBRAppearance { baseColor 0.12 0.46 0.78 } geometry Box { size 0.10 1.9 0.10 } } ]
     }
     Pose {
-      translation 0.48 0.95 0
-      children [ Shape { appearance PBRAppearance { baseColor 0.12 0.46 0.78 } geometry Box { size 0.08 1.9 0.10 } } ]
+      translation 0 0.95 0.55
+      children [ Shape { appearance PBRAppearance { baseColor 0.12 0.46 0.78 } geometry Box { size 0.10 1.9 0.10 } } ]
     }
     Pose {
       translation 0 1.9 0
-      children [ Shape { appearance PBRAppearance { baseColor 0.12 0.46 0.78 } geometry Box { size 1.04 0.08 0.10 } } ]
+      children [ Shape { appearance PBRAppearance { baseColor 0.12 0.46 0.78 } geometry Box { size 0.10 0.08 1.20 } } ]
     }
   ]
 }
 
-DEF OBSTACLE Solid {
-  translation -0.62 0.24 -1.55
-  name "obstacle"
+# 隔壁门(右墙, z=-1.6): 视觉叙事"去隔壁拿东西", 网格里也算 door(远离冰箱角落)
+DEF SIDE_DOOR Solid {
+  translation 1.3 0 -1.6
+  name "side door"
+  model "door"
+  recognitionColors [ 0.30 0.52 0.70 ]
+  children [
+    Pose {
+      translation 0 0.95 -0.45
+      children [ Shape { appearance PBRAppearance { baseColor 0.30 0.52 0.70 } geometry Box { size 0.10 1.9 0.10 } } ]
+    }
+    Pose {
+      translation 0 0.95 0.45
+      children [ Shape { appearance PBRAppearance { baseColor 0.30 0.52 0.70 } geometry Box { size 0.10 1.9 0.10 } } ]
+    }
+    Pose {
+      translation 0 1.9 0
+      children [ Shape { appearance PBRAppearance { baseColor 0.30 0.52 0.70 } geometry Box { size 0.10 0.08 1.00 } } ]
+    }
+  ]
+}
+
+# 长椅(左墙, z≈0): 走廊"路旁"的道具, 不在行车路径上
+DEF BENCH Solid {
+  translation -1.05 0.25 0.2
+  name "bench"
   contactMaterial "obstacle"
   children [
     Shape {
-      appearance PBRAppearance { baseColor 0.92 0.55 0.16 roughness 0.78 }
-      geometry Box { size 0.52 0.48 0.52 }
+      appearance PBRAppearance { baseColor 0.55 0.38 0.24 roughness 0.8 }
+      geometry Box { size 0.35 0.5 1.2 }
     }
   ]
-  boundingObject Box { size 0.52 0.48 0.52 }
+  boundingObject Box { size 0.35 0.5 1.2 }
 }
 
-# --- Demo 场景景点 (跟到饮水机 / 绕开门边 / 跟到冰箱 / 接物) ---
+# 饮水机(走廊尽头, 离宿舍门 ~9m)
 DEF WATER_DISPENSER Solid {
-  translation -2.60 0.55 -3.30
+  translation 0 0.55 -5.75
   name "water dispenser"
-  model "refrigerator"
+  model "water dispenser"
   recognitionColors [ 0.85 0.88 0.92 ]
   children [
     Shape { appearance PBRAppearance { baseColor 0.85 0.88 0.92 roughness 0.5 } geometry Box { size 0.45 1.10 0.42 } }
@@ -116,8 +144,10 @@ DEF WATER_DISPENSER Solid {
   ]
   boundingObject Box { size 0.45 1.10 0.42 }
 }
+
+# 隔壁冰箱(左墙, 饮水机旁): 主人取物不离开车的视野, 回身递物触发 RECEIVE
 DEF REFRIGERATOR Solid {
-  translation 3.20 0.85 -1.20
+  translation -0.9 0.85 -4.8
   name "refrigerator"
   model "refrigerator"
   recognitionColors [ 0.90 0.91 0.93 ]
@@ -130,19 +160,9 @@ DEF REFRIGERATOR Solid {
   ]
   boundingObject Box { size 0.60 1.70 0.60 }
 }
-DEF COUNTER Solid {
-  translation 1.90 0.45 -3.30
-  name "counter"
-  model "dining table"
-  recognitionColors [ 0.62 0.45 0.30 ]
-  children [
-    Shape { appearance PBRAppearance { baseColor 0.62 0.45 0.30 roughness 0.7 } geometry Box { size 1.20 0.90 0.55 } }
-  ]
-  boundingObject Box { size 1.20 0.90 0.55 }
-}
 
 DEF OWNER Solid {
-  translation 0 0 -2.65
+  translation -0.8 0 3.0
   name "simulated owner"
   model "person"
   recognitionColors [ 0.82 0.20 0.16 ]
@@ -180,7 +200,7 @@ DEF OWNER Solid {
   }
 }
 
-# 双人场景路人 (A1.2 owner.json 锁主验收): 蓝色, 默认停在远处不可见
+# 双人场景路人: 默认停在远处不可见, 剧本/键盘从宿舍门带入
 DEF PASSERBY Solid {
   translation 100 0 100
   name "simulated passerby"
@@ -239,7 +259,8 @@ DEF OFFER_OBJECT Solid {
 }
 
 DEF SIM_ROBOT Robot {
-  translation 0 0.06 0
+  translation 0 0.06 4.5
+  rotation 0 1 0 0.49
   name "Shadow Carrier simulation"
   controller "shadow_carrier"
   supervisor TRUE
@@ -255,7 +276,7 @@ DEF SIM_ROBOT Robot {
     HingeJoint {
       jointParameters HingeJointParameters { anchor -0.115 -0.015 0 axis 1 0 0 }
       device [ RotationalMotor { name "left wheel motor" maxTorque 4 maxVelocity 18 } ]
-      endPoint Solid {
+      endPoint DEF LEFT_WHEEL Solid {
         name "left wheel"
         contactMaterial "wheel"
         children [
@@ -265,13 +286,12 @@ DEF SIM_ROBOT Robot {
           }
         ]
         boundingObject Pose { rotation 0 0 1 1.5708 children [ Cylinder { radius 0.047 height 0.028 } ] }
-        physics Physics { density -1 mass 0.09 }
       }
     }
     HingeJoint {
       jointParameters HingeJointParameters { anchor 0.115 -0.015 0 axis 1 0 0 }
       device [ RotationalMotor { name "right wheel motor" maxTorque 4 maxVelocity 18 } ]
-      endPoint Solid {
+      endPoint DEF RIGHT_WHEEL Solid {
         name "right wheel"
         contactMaterial "wheel"
         children [
@@ -281,7 +301,6 @@ DEF SIM_ROBOT Robot {
           }
         ]
         boundingObject Pose { rotation 0 0 1 1.5708 children [ Cylinder { radius 0.047 height 0.028 } ] }
-        physics Physics { density -1 mass 0.09 }
       }
     }
     HingeJoint {
@@ -305,17 +324,15 @@ DEF SIM_ROBOT Robot {
                   height 480
                   fieldOfView 1.0
                   near 0.03
-                  far 8
+                  far 12
                   recognition Recognition { }
                 }
               ]
               boundingObject NULL
-              physics Physics { density -1 mass 0.05 }
             }
           }
         ]
         boundingObject NULL
-        physics Physics { density -1 mass 0.05 }
       }
     }
     DistanceSensor {
@@ -338,9 +355,7 @@ DEF SIM_ROBOT Robot {
         }
       ]
       boundingObject Sphere { radius 0.02 }
-      physics Physics { density -1 mass 0.02 }
     }
   ]
   boundingObject Pose { translation 0 0.0535 0 children [ Box { size 0.22 0.04 0.27 } ] }
-  physics Physics { density -1 mass 0.85 centerOfMass [ 0 0.015 0 ] }
 }

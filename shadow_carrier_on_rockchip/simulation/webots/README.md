@@ -6,6 +6,12 @@ This project runs on a desktop with Webots; the RK3566 board, camera, C3, and ch
 
 Install Webots for macOS or Windows, then open `worlds/shadow_carrier.wbt` from Webots. The world starts the `shadow_carrier` Python controller automatically. The controller imports the repository's existing `hri_state.py`; it only needs Python's standard library plus Webots' `controller` module.
 
+## Demo Scene (corridor)
+
+The world is the demo scenario: a dormitory corridor with the dorm door (left wall), a water dispenser at the far end, and the "next door" refrigerator beside it. Press `G` (or run `run_demo.sh`) and the scripted owner walks the full demo: 出宿舍门 → 打水(静止) → 车躲到饮水机旁墙根(离门远) → 路人从宿舍门进来 → 到冰箱取物回身递给车 → 车上前接住 → 一起回宿舍. The whole run is ~95 s and exercises `FOLLOW / WAIT / HIDE / RECEIVE / YIELD`, the owner lock, and HIDE affinity scoring end to end.
+
+The chassis is kinematic (the world has no `physics` node): the controller integrates differential-drive kinematics from the C3-style wheel commands. This keeps the protocol semantics (ramp, 450 ms timeout, `DIFF`/`MOVE`/sonar stop) while avoiding solver instabilities on macOS. Wheel visual spin and collisions are not simulated.
+
 ## Controls
 
 | Key | Action |
@@ -13,6 +19,7 @@ Install Webots for macOS or Windows, then open `worlds/shadow_carrier.wbt` from 
 | `W` / `S` | Forward / backward |
 | `A` / `D` | Turn left / right |
 | `Space` | Stop |
+| `G` | Owner autopilot: scripted demo scenario on/off |
 | `I` / `K` | Move the simulated owner closer / farther |
 | `J` / `L` | Move the simulated owner left / right |
 | `Arrow keys` | Move the simulated passerby (second person) |
@@ -24,23 +31,19 @@ Install Webots for macOS or Windows, then open `worlds/shadow_carrier.wbt` from 
 | `-` / `=` | Tilt the camera down / up |
 | `R` | Reset the scene and HRI state |
 
-The owner starts in front of the robot. With HRI enabled, Webots camera recognition supplies bounding boxes to the existing `FOLLOW / WAIT / HIDE / RECEIVE / YIELD` state machine and `FollowController`. The simulated detector is injected through an optional provider; the physical follow path still uses its enrolled owner profile. The simulated camera supplies a perfect `person` label, so owner identity and real YOLO performance are not measured here.
-
 ## Owner Lock (HRI A1.2) and the Passerby
 
-The controller emulates the real-machine cross-process owner lock: the follow side (simulated template = the `OWNER` node, told apart from the blue `PASSERBY` by recognition color) publishes `{ts, bbox}` to a lock file with the same format and 0.2 s rate limit as `follow_controller._publish_owner`, and the HRI side consumes it through the unmodified `hri_state._owner_box_from_file` path (`owner.source=file`). When the owner is not visible the file goes stale and HRI falls back exactly as it would on the board.
-
-Use this to rehearse the A1.2 acceptance ("dual-person scene picks the right person"): show the passerby (`P`, arrow keys), park it closer/larger than the owner, and check that HRI keeps tracking the owner — `dist_m` in the frame log reflects the locked person's distance.
+The controller emulates the real-machine cross-process owner lock: the follow side (simulated template = the `OWNER` node, told apart from the blue `PASSERBY` by recognition color) publishes `{ts, bbox}` to a lock file with the same format and 0.2 s rate limit as `follow_controller._publish_owner`, and the HRI side consumes it through the unmodified `hri_state._owner_box_from_file` path (`owner.source=file`). When the owner is not visible the file goes stale and HRI falls back exactly as it would on the board. When the owner is invisible during `WAIT` the robot turns toward the owner's true position (search gaze); during `HIDE` (after parking) it keeps facing the owner (rescue gaze).
 
 ## Simulated Interfaces
 
-- Differential drive, C3-style motor ramping, and the 450 ms command timeout.
+- Differential drive (kinematic), C3-style motor ramping, and the 450 ms command timeout.
 - The current line protocol: `MOVE`, `DIFF`, `STOP`, `PING`, `PAN`, and `TLT`.
-- A two-axis camera gimbal, front camera, front sonar, room, obstacle, movable owner, movable passerby, hand-held bottle, and a door landmark used by HIDE.
-- The existing `FollowController` and HRI state machine, fed detections shaped as `label/conf/bbox`.
-- The grid snapshot embeds a `sector_scores` block produced by the real `world/fusion/sector_score.py`, so `pick_safe_spot` exercises the same affinity scoring and confidence fallback as on the board.
+- Corridor world: dorm door, side door, water dispenser, refrigerator, bench; two-axis camera gimbal, front camera, front sonar; movable owner, movable passerby, hand-held bottle.
+- The existing `FollowController` and HRI state machine, fed detections shaped as `label/conf/bbox` (autotest synthesizes them from ground-truth 3D positions via a pinhole model with lateral projection; interactive mode uses Webots recognition with real occlusion).
+- The follow side keeps a ~2.5-3 m distance to the owner (sim-only comfort feature, ground-truth gated); the grid snapshot embeds a `sector_scores` block produced by the real `world/fusion/sector_score.py`.
 
-The camera uses Webots' built-in object recognition to produce bounding boxes (the autotest instead synthesizes boxes from ground-truth 3D positions via a pinhole model with lateral projection); it does not run the RK3566 YOLO/NPU model. The sonar represents a 20 cm forward-motion stop. HIDE drives a simple 1 m waypoint along the selected door bearing; it does not perform path planning. C3 echo timing, the USB CDC link, real servo dynamics, wheel calibration, and physical floor friction are not reproduced. Use this to iterate behavior and interfaces, then validate timing and calibration on the physical robot.
+Use this to iterate behavior and interfaces, then validate timing and calibration on the physical robot.
 
 ## Layout
 
@@ -48,6 +51,7 @@ The camera uses Webots' built-in object recognition to produce bounding boxes (t
 webots/
 ├── worlds/shadow_carrier.wbt
 ├── controllers/shadow_carrier/shadow_carrier.py
-├── run_autotest.sh     (macOS/Linux; ~110 s scripted run incl. dual-person owner-lock)
+├── run_demo.sh         (macOS/Linux; motion mode, full demo scenario ~95 s)
+├── run_autotest.sh     (macOS/Linux; observe mode, state-machine regression)
 └── run_autotest.bat    (Windows)
 ```

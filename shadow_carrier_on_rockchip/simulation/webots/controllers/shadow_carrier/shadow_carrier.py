@@ -16,7 +16,10 @@ PROJECT_DIR = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(PROJECT_DIR / "scripts"))
 sys.path.insert(0, str(PROJECT_DIR / "world" / "fusion"))
 import hri_state
+import follow_controller as _fc_mod
 from follow_controller import FollowController
+# 仿真轮径小(0.047m), BASE_SPD=100 只有 0.18m/s 跟不上步速; 仅仿真进程内调高, 实机不动
+_fc_mod.BASE_SPD = 240
 try:
     import sector_score   # [世界] HIDE 亲和度纯函数, 仿真 grid 快照直接复用真实现
 except ImportError:
@@ -29,6 +32,13 @@ RAMP_STEP = 8
 MAX_WHEEL_RAD_S = 10.0
 SONAR_STOP_CM = 20.0
 HRI_PERIOD_S = 0.30
+WHEEL_RADIUS_M = 0.047      # 与世界 SIM_ROBOT 车轮几何一致(运动学积分用)
+WHEEL_HALF_TRACK_M = 0.115
+# 走廊 demo 场景常量 (世界坐标 x, z)
+DORM_DOOR_POS = (-0.85, 3.0)        # 宿舍门内侧(路人入场点)
+HIDE_SPOT = (1.0, -4.3)             # 饮水机旁墙根: 离门 ~9m, 不挡饮水机/冰箱正前方
+FOLLOW_KEEP_MIN_M = 2.6             # 仿真车距保持: 近于此距离刹车暂停跟随
+FOLLOW_KEEP_RESUME_M = 3.0          # 远于此距离恢复推进(滞回)
 
 
 def clamp(value, low, high):
@@ -45,6 +55,8 @@ class ShadowCarrierSimulation:
 
         self.left_motor = self.robot.getDevice("left wheel motor")
         self.right_motor = self.robot.getDevice("right wheel motor")
+        self.left_wheel_node = self.robot.getFromDef("LEFT_WHEEL")
+        self.right_wheel_node = self.robot.getFromDef("RIGHT_WHEEL")
         self.left_motor.setPosition(float("inf"))
         self.right_motor.setPosition(float("inf"))
         self.pan_motor = self.robot.getDevice("pan motor")
@@ -101,15 +113,24 @@ class ShadowCarrierSimulation:
         self.owner_json_path = Path(tempfile.gettempdir()) / "shadow_carrier_webots_owner.json"
         self._last_owner_pub = 0.0
         self._last_ownerbox = None
+        self._hold_far = False
+        self.autopilot = False
+        self.autopilot_t0 = 0.0
+        self._kin_pos = [0.0, 0.06, 4.5]   # 与世界 SIM_ROBOT 出生点位姿一致
+        self._kin_yaw = 0.49
+        self._hide_driving = False
+        self._hide_arrived = False
+        self._drive_to_safe_target_done = False
         self._log_open()
         self.machine = self._new_state_machine()
         self.follower = FollowController(
-            self._execute_ascii,
+            self._follow_cmd,
             person_provider=self._follow_person,
         )
         self.follower.start()
         print("[SIM] Webots adapter ready. HRI is on; use T to toggle it.")
-        print("[SIM] WASD drive, Space stop; I/K/J/L move owner; arrows move passerby, P toggle it;")
+        print("[SIM] 走廊 demo 场景: 宿舍门→饮水机→隔壁冰箱. WASD drive, Space stop;")
+        print("[SIM] I/K/J/L move owner; G 主人自动驾驶(demo剧本); arrows move passerby, P toggle;")
         print("[SIM] O offer object; H hide owner; R reset. owner.json (A1.2 lock) is auto-published.")
         print(f"[SIM] sector_score {'loaded' if sector_score is not None else 'NOT FOUND (grid falls back to door-first)'}")
         print("[SIM] ',' '.' pan; '-' '=' tilt. Commands follow the C3 450 ms timeout and ramp.")
@@ -118,8 +139,8 @@ class ShadowCarrierSimulation:
             print("[SIM] AUTOTEST mode: scripted owner timeline, keyboard ignored, auto-quit at end.")
             print(f"[SIM] chassis motion: {'ON' if self.autotest_motion else 'OFF (observe-only)'}")
 
-    def _set_person(self, z):
-        self.owner_node.getField("translation").setSFVec3f([0, 0, z])
+    def _set_person(self, x, z):
+        self.owner_node.getField("translation").setSFVec3f([x, 0, z])
 
     def _set_passerby(self, position):
         """None=藏到视野外, 否则 [x, z] 落位"""
@@ -129,56 +150,65 @@ class ShadowCarrierSimulation:
         else:
             self.passerby_translation.setSFVec3f([position[0], 0, position[1]])
 
-    def _set_object(self, offered, z):
+    def _set_object(self, offered, owner_pos):
+        """手持物跟随主人手部; owner_pos = (x, z)"""
         if offered:
-            self.bottle_node.getField("translation").setSFVec3f([0.30, 0.95, z])
+            self.bottle_node.getField("translation").setSFVec3f(
+                [owner_pos[0] + 0.28, 0.95, owner_pos[1] - 0.05])
         else:
             self.bottle_node.getField("translation").setSFVec3f([100, 0.9, 100])
 
-    def _autotest_update(self, t):
-        """脚本驱动: 静止->缓慢靠近(持物)->后退->快冲->静止(HIDE)->持物靠近->消失. 返回 True 结束."""
-        if t < 16:            # 静止 2.5m: FOLLOW -> WAIT(5s)
-            self._set_person(-2.5); self._set_object(False, 0)
-        elif t < 24:          # 持物缓慢靠近: RECEIVE
-            z = -2.5 + (t - 16) / 8.0 * 1.3
-            self._set_person(z); self._set_object(True, z)
-        elif t < 30:          # 后退: RECEIVE -> WAIT
-            z = -1.2 - (t - 24) / 6.0 * 1.0
-            self._set_person(z); self._set_object(True, z)
-        elif t < 31.5:        # 快冲(~0.93m/s): YIELD
-            z = -2.2 + (t - 30) / 1.5 * 1.4
-            self._set_person(z); self._set_object(False, 0)
-        elif t < 40:          # 停在近处
-            self._set_person(-0.8); self._set_object(False, 0)
-        elif t < 42:          # 快速退开
-            z = -0.8 - (t - 40) / 2.0 * 1.7
-            self._set_person(z); self._set_object(False, 0)
-        elif t < 68:          # 静止 -> WAIT -> HIDE(20s) -> GOTO_SAFE
-            self._set_person(-2.5); self._set_object(False, 0)
-        elif t < 76:          # 持物缓慢靠近: RECEIVE(持物)
-            z = -2.5 + (t - 68) / 8.0 * 1.3
-            self._set_person(z); self._set_object(True, z)
-        elif t < 84:          # 主人消失: owner-lost / wait_owner
-            self._set_person(100); self._set_object(False, 0)
+    @staticmethod
+    def _lerp2(a, b, s):
+        return (a[0] + (b[0] - a[0]) * s, a[1] + (b[1] - a[1]) * s)
+
+    def _face_toward(self, target):
+        """掉头面向目标点(排练转场用): 设内部航向, 积分器每步写出"""
+        pos = self._kin_position()
+        self._kin_yaw = math.atan2(-(target[0] - pos[0]), -(target[1] - pos[2]))
+
+    def _demo_update(self, t):
+        """demo 全场景剧本(仿真秒): 跟出宿舍门→打水躲避→路人进门→隔壁取物回身递给车→一起回宿舍.
+        返回 True 结束."""
+        owner = tuple(self.owner_translation.getSFVec3f()[:2])
+        if t < 18:            # P1 跟出宿舍门走到饮水机 (8.05m @0.45m/s), 车保持 ~2.5m 车距
+            self._set_person(*self._lerp2((-0.8, 3.0), (0.0, -5.0), t / 18))
+            self._set_object(False, (0, 0)); self._set_passerby(None)
+        elif t < 40:          # P2 主人打水静止: 5s→WAIT, 20s→HIDE(38s)→车挪到饮水机旁墙根
+            self._set_person(0.0, -5.0); self._set_object(False, (0, 0))
             self._set_passerby(None)
-        elif t < 88:          # 路人横穿入场(主人不在): owner.json 过期 → 降级选人(预期跟错为路人)
-            x = -3.2 + (t - 84) / 4.0 * 2.1
-            self._set_person(100); self._set_object(False, 0)
-            self._set_passerby((x, -1.2))
-        elif t < 91:          # 路人停近处静止, 主人仍未出现
-            self._set_person(100); self._set_object(False, 0)
-            self._set_passerby((-1.1, -1.2))
-        elif t < 97:          # 主人回到远处静止, 路人保持更近: owner.json 新鲜 → 必须锁主人(距离≈2.6 非 1.2)
-            self._set_person(-2.6); self._set_object(False, 0)
-            self._set_passerby((-1.1, -1.2))
-        elif t < 105:         # 主人持物缓慢靠近(路人保持更近): RECEIVE 且锁主不被路人劫走
-            z = -2.6 + (t - 97) / 8.0 * 1.3
-            self._set_person(z); self._set_object(True, z)
-            self._set_passerby((-1.1, -1.2))
-        elif t < 109:         # 主人持物后退: 交接完成 -> WAIT
-            z = -1.3 - (t - 105) / 4.0 * 0.6
-            self._set_person(z); self._set_object(True, z)
-            self._set_passerby((-1.1, -1.2))
+        elif t < 42:          # P3 路人出现在宿舍门口
+            self._set_person(0.0, -5.0); self._set_object(False, (0, 0))
+            self._set_passerby(DORM_DOOR_POS)
+        elif t < 54:          # P4 路人沿走廊走向饮水机(经过车前, 验证锁主)
+            self._set_person(0.0, -5.0); self._set_object(False, (0, 0))
+            self._set_passerby(self._lerp2(DORM_DOOR_POS, (0.3, -5.2), (t - 42) / 12))
+        elif t < 58:          # P5 主人到旁边冰箱取物 (1.03m @0.26m/s, 始终在车视野内)
+            self._set_person(*self._lerp2((0.0, -5.0), (-0.55, -4.6), (t - 54) / 4))
+            self._set_object(False, (0, 0)); self._set_passerby((0.3, -5.2))
+        elif t < 62:          # P6 取物, 60s 拿起东西
+            self._set_person(-0.55, -4.6)
+            self._set_object(t >= 60, (-0.55, -4.6)); self._set_passerby((0.3, -5.2))
+        elif t < 67:          # P7 持物缓近递给车 (0.95m @0.19m/s → RECEIVE, 车随后上前)
+            pos = self._lerp2((-0.55, -4.6), (0.1, -4.1), (t - 62) / 5)
+            self._set_person(*pos); self._set_object(True, pos)
+            self._set_passerby((0.3, -5.2))
+        elif t < 71:          # P8 递给它(停住), 车上前一点接住
+            self._set_person(0.1, -4.1); self._set_object(True, (0.1, -4.1))
+            self._set_passerby((0.3, -5.2))
+        elif t < 73.5:        # P9 交接完成(轻微后退), 放下东西
+            pos = self._lerp2((0.1, -4.1), (0.0, -3.5), (t - 71) / 2.5)
+            self._set_person(*pos); self._set_object(False, pos)
+            self._set_passerby((0.3, -5.2))
+        elif t < 74:          # P10 侧身转向宿舍(唤醒恢复跟随)
+            self._set_person(0.85, -3.3); self._set_object(False, (0, 0))
+            self._set_passerby((0.3, -5.2))
+        elif t < 86:          # P11 一起回宿舍: 主人走前面, 车保持车距跟随
+            self._set_person(*self._lerp2((0.85, -3.3), (0.0, 2.6), (t - 74) / 12))
+            self._set_object(False, (0, 0)); self._set_passerby((0.3, -5.2))
+        elif t < 91:          # P12 到宿舍门口静止 → WAIT, 车在身后等候
+            self._set_person(0.0, 2.6); self._set_object(False, (0, 0))
+            self._set_passerby((0.3, -5.2))
         else:
             return True
         return False
@@ -223,11 +253,14 @@ class ShadowCarrierSimulation:
         self._log({"type": "transition", "msg": msg})
 
     def _yaw(self):
-        rotation = self.self_node.getOrientation()
-        return math.atan2(rotation[2], rotation[0])
+        return self._kin_yaw
+
+    def _kin_position(self):
+        """机器人运动学位姿(自持状态, 不读 Webots —— 无 physics 节点读数不可靠)"""
+        return self._kin_pos
 
     def _bearing_to(self, target):
-        position = self.self_node.getPosition()
+        position = self._kin_position()
         dx, dz = target[0] - position[0], target[2] - position[2]
         yaw = self._yaw()
         local_x = math.cos(yaw) * dx - math.sin(yaw) * dz
@@ -239,23 +272,31 @@ class ShadowCarrierSimulation:
         if node is None:
             return None
         pos = node.getPosition()
-        robot_pos = self.self_node.getPosition()
+        robot_pos = self._kin_position()
         dist = math.hypot(pos[0] - robot_pos[0], pos[2] - robot_pos[2])
         return {"cls": cls, "bearing_deg": self._bearing_to(pos),
                 "dist_m": round(dist, 2)}
 
     def _refresh_grid(self):
-        """填 demo 全场景的语义快照: 门 + 景点(饮水机/冰箱/柜台) + sector_scores 亲和度"""
+        """走廊 demo 场景的语义快照: 宿舍门/隔壁门 + 饮水机 + 冰箱 + sector_scores"""
         objects = [o for o in (
-            self._grid_object("SAFE_DOOR", "door"),
-            self._grid_object("WATER_DISPENSER", "refrigerator"),
+            self._grid_object("DORM_DOOR", "door"),
+            self._grid_object("SIDE_DOOR", "door"),
+            self._grid_object("WATER_DISPENSER", "water dispenser"),
             self._grid_object("REFRIGERATOR", "refrigerator"),
-            self._grid_object("COUNTER", "dining table"),
         ) if o]
+        # 自由方向 = 场景躲避点(HIDE_SPOT)相对车的方位角(仿真实机滚动地图的自由扇区)
+        free = []
+        rp = self._kin_position()
+        yaw = self._yaw()
+        dx, dz = HIDE_SPOT[0] - rp[0], HIDE_SPOT[1] - rp[2]
+        lx = math.cos(yaw) * dx - math.sin(yaw) * dz
+        lz = math.sin(yaw) * dx + math.cos(yaw) * dz
+        free.append(round(math.degrees(math.atan2(lx, -lz)), 1))
         snapshot = {
             "ts": time.time(),
             "objects": objects,
-            "free_directions_deg": [-45, 45],
+            "free_directions_deg": free,
         }
         if sector_score is not None:
             # 与实机 sector_score.py 同一 schema: 产出 sector_scores 供 HIDE pick_safe_spot 消费
@@ -263,7 +304,7 @@ class ShadowCarrierSimulation:
                 "doors": [{"bearing_deg": o["bearing_deg"], "age_s": 0}
                           for o in objects if "door" in o["cls"]],
                 "free_sectors": [{"bearing_deg": b, "age_s": 0}
-                                 for b in snapshot["free_directions_deg"]],
+                                 for b in free],
                 "objects": [{"cls": o["cls"], "bearing_deg": o["bearing_deg"], "age_s": 0}
                             for o in objects],
             })
@@ -291,16 +332,21 @@ class ShadowCarrierSimulation:
 
     def _synthetic_box(self, node, w_m, h_m):
         """3D 位置 + 针孔模型合成检测框; 深度窗外返回 None。
-        相机位置用假定原点(观察模式车应停在原点), 不读实际车位置——物理漂移不影响。
-        横向按 x/depth 投影像素偏移, 双人场景两个框才能真正分开。"""
-        _x, _y, z = node.getField("translation").getSFVec3f()
-        depth = -z  # 前方为 -z
-        if depth < 0.3 or depth > 6.0:
+        用车体真实位姿投影(运动模式必须); 观察模式车被钉在原点, 结果与旧假定原点一致。
+        横向按 lx/depth 投影像素偏移, 双人场景两个框才能真正分开。"""
+        pos = node.getField("translation").getSFVec3f()
+        rp = self._kin_position()
+        yaw = self._yaw()
+        dx, dz = pos[0] - rp[0], pos[2] - rp[2]
+        lx = math.cos(yaw) * dx - math.sin(yaw) * dz
+        lz = math.sin(yaw) * dx + math.cos(yaw) * dz
+        depth = -lz   # 车前方为 -z
+        if depth < 0.15 or depth > 6.0:
             return None
         bw = self.fx_px * w_m / depth
         bh = self.fx_px * h_m / depth
-        cx, cy = self.camera.getWidth() / 2.0, self.camera.getHeight() / 2.0
-        cx += self.fx_px * (_x / depth)   # 车面朝 -z, 图像右 = 世界 +x
+        cx = self.camera.getWidth() / 2 + self.fx_px * (lx / depth)
+        cy = self.camera.getHeight() / 2
         return [cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2]
 
     def _geom_detections(self):
@@ -460,47 +506,106 @@ class ShadowCarrierSimulation:
             if action == "BACK_OFF":
                 self._execute_ascii("MOVE B 60")
             elif action == "APPROACH":
-                self._execute_ascii("MOVE F 45")
-            return
+                self._execute_ascii("MOVE F 90")
+            return   # GOTO_SAFE 不重复设目标: 目标固定才能在推力漂移下收敛
         self.hri_action = action
         if action == "NONE":
             self.safe_target = None
             self.safe_target_yaw = None
+            self._hide_driving = False
+            self._hide_arrived = False
+            self._drive_to_safe_target_done = False
             self._execute_ascii("STOP")
         elif action == "BACK_OFF":
             self.safe_target = None
             self.safe_target_yaw = None
+            self._hide_driving = False
+            self._hide_arrived = False
+            self._drive_to_safe_target_done = False
             self._execute_ascii("MOVE B 60")
         elif action == "APPROACH":
             self.safe_target = None
             self.safe_target_yaw = None
-            self._execute_ascii("MOVE F 45")
+            self._hide_driving = False
+            self._hide_arrived = False
+            self._drive_to_safe_target_done = False
+            self._execute_ascii("MOVE F 90")
         elif action.startswith("GOTO_SAFE"):
-            match = re.search(r"GOTO_SAFE\s+(-?\d+(?:\.\d+)?)", action)
-            bearing = float(match.group(1)) if match else 0.0
-            yaw_target = self._yaw() - math.radians(bearing)
-            position = self.self_node.getPosition()
-            self.safe_target_yaw = yaw_target
-            self.safe_target = [
-                position[0] - math.sin(yaw_target),
-                position[1],
-                position[2] - math.cos(yaw_target),
-            ]
+            self._set_safe_target(action)
+
+    def _set_safe_target(self, action):
+        """GOTO_SAFE → 目标点: 方位角命中已知躲避点(±55°)直接以该点为目标(航向取几何朝向);
+        否则回退为沿方位角 1m 航点(旧行为)"""
+        match = re.search(r"GOTO_SAFE\s+(-?\d+(?:\.\d+)?)", action)
+        bearing = float(match.group(1)) if match else 0.0
+        position = self._kin_position()
+        for spot in (HIDE_SPOT,):
+            diff = abs((self._bearing_to((spot[0], 0.0, spot[1])) - bearing + 180) % 360 - 180)
+            if diff <= 55:
+                # 航向直接由几何朝向给出(与 _face_toward 同一约定), 不经扇区角换算
+                self.safe_target_yaw = math.atan2(-(spot[0] - position[0]),
+                                                  -(spot[1] - position[2]))
+                self.safe_target = [spot[0], position[1], spot[1]]
+                return
+        yaw_target = self._yaw() - math.radians(bearing)
+        self.safe_target_yaw = yaw_target
+        self.safe_target = [
+            position[0] - math.sin(yaw_target),
+            position[1],
+            position[2] - math.cos(yaw_target),
+        ]
 
     def _drive_to_safe_target(self):
+        """纯追踪(arc)驱车到躲避点: 与跟随弧线同款控制, 不原地旋转
+        (macOS 求解器下急旋会诱发接触弹射, 曾把车甩向主人)"""
         if self.safe_target is None:
+            self._hide_driving = False
             return
-        position = self.self_node.getPosition()
+        position = self._kin_position()
         remaining = math.hypot(self.safe_target[0] - position[0],
                                self.safe_target[2] - position[2])
-        if remaining <= 0.12:
+        if remaining <= 0.5:
+            self._hide_driving = False
+            self._drive_to_safe_target_done = True
             self._execute_ascii("STOP")
             return
-        yaw_error = (self.safe_target_yaw - self._yaw() + math.pi) % (2 * math.pi) - math.pi
-        if abs(yaw_error) > math.radians(8):
-            self._execute_ascii("MOVE R 42" if yaw_error > 0 else "MOVE L 42")
+        self._hide_driving = True
+        err = self._bearing_to((self.safe_target[0], 0.0, self.safe_target[2]))  # + = 右
+        base, slow_min = 220, 70
+        if remaining < 0.9:
+            base = 140   # 近目标减速, 防止纯追踪极限环
+        ratio = min(1.0, abs(err) / 50.0)
+        slow = int(base - ratio * (base - slow_min))
+        if err > 4:      # 目标在右 → 右轮慢(与 follow_controller 同款映射)
+            cmd = f"DIFF L{base} R{slow}"
+        elif err < -4:   # 目标在左 → 左轮慢
+            cmd = f"DIFF L{slow} R{base}"
         else:
-            self._execute_ascii("MOVE F 55")
+            cmd = f"DIFF L{base} R{base}"
+        self._log({"type": "hide_drive", "err": round(err, 1),
+                   "remaining": round(remaining, 2), "cmd": cmd})
+        self._execute_ascii(cmd)
+
+    def _owner_gt_dist(self):
+        """与主人的地面真值距离(supervisor 才有, 用于车距保持)"""
+        op = self.owner_translation.getSFVec3f()
+        rp = self._kin_position()
+        return math.hypot(op[0] - rp[0], op[2] - rp[2])
+
+    def _follow_cmd(self, command):
+        """仿真专用车距保持: 跟随推进命令(DIFF)在离主人过近时改发 STOP 刹车, 保持 ~2.5m 跟随距离。
+        只过滤跟随器输出; APPROACH/BACK_OFF/GOTO(动作层)与丢主倒车(MOVE B)不受影响。"""
+        if command.startswith("DIFF"):
+            dist = self._owner_gt_dist()
+            if dist is not None:
+                if dist < FOLLOW_KEEP_MIN_M:
+                    self._hold_far = True
+                elif dist > FOLLOW_KEEP_RESUME_M:
+                    self._hold_far = False
+                if self._hold_far:
+                    self._execute_ascii("STOP")   # 主动刹车(清零电流 → 物理 scrub 生效)
+                    return
+        self._execute_ascii(command)
 
     def _ramp_motors(self, now, blocked):
         if now - self.last_ramp >= RAMP_INTERVAL_S:
@@ -529,6 +634,17 @@ class ShadowCarrierSimulation:
         scale = MAX_WHEEL_RAD_S / 255.0
         self.left_motor.setVelocity(self.left_current * scale)
         self.right_motor.setVelocity(self.right_current * scale)
+        # 运动学底盘: 世界无 physics(macOS 求解器对静止/旋转车注入幽灵推力),
+        # supervisor 按差速运动学积分位姿 —— C3 协议语义(斜坡/超时/DIFF)不变
+        dt = self.timestep / 1000.0
+        v = (self.left_current + self.right_current) / 2.0 * scale * WHEEL_RADIUS_M
+        omega = (self.right_current - self.left_current) / 2.0 * scale \
+            * WHEEL_RADIUS_M / WHEEL_HALF_TRACK_M
+        self._kin_yaw += omega * dt
+        self._kin_pos[0] -= math.sin(self._kin_yaw) * v * dt
+        self._kin_pos[2] -= math.cos(self._kin_yaw) * v * dt
+        self.position_field.setSFVec3f(list(self._kin_pos))
+        self.rotation_field.setSFRotation([0, 1, 0, self._kin_yaw])
 
     def _process_key(self, key):
         if key in (ord("w"), ord("W")):
@@ -549,6 +665,16 @@ class ShadowCarrierSimulation:
             self._move_passerby(key)
         elif key in (ord("p"), ord("P")):
             self._toggle_passerby()
+        elif key in (ord("g"), ord("G")):
+            self.autopilot = not self.autopilot
+            if self.autopilot:
+                self.autopilot_t0 = time.monotonic()
+                self._hold_far = False
+                self._set_passerby(None)
+                print("[SIM] demo autopilot ON — 主人自动走全场景剧本 (G 再按停止)")
+            else:
+                self._execute_ascii("STOP")
+                print("[SIM] demo autopilot OFF")
         elif key in (ord("o"), ord("O")):
             self._toggle_bottle()
         elif key in (ord("h"), ord("H")):
@@ -638,9 +764,12 @@ class ShadowCarrierSimulation:
         print(f"[SIM] owner {'visible' if self.owner_visible else 'hidden'}")
 
     def _reset_scene(self):
+        self.autopilot = False
         self._execute_ascii("STOP")
-        self.position_field.setSFVec3f([0, 0.06, 0])
-        self.rotation_field.setSFRotation([0, 1, 0, 0])
+        self._kin_pos = [0.0, 0.06, 4.5]
+        self._kin_yaw = 0.49
+        self.position_field.setSFVec3f(list(self._kin_pos))
+        self.rotation_field.setSFRotation([0, 1, 0, self._kin_yaw])
         self.owner_visible = True
         self.owner_translation.setSFVec3f(self.owner_start)
         self.passerby_visible = False
@@ -654,9 +783,10 @@ class ShadowCarrierSimulation:
         self.hri_action = "NONE"
         self.safe_target = self.safe_target_yaw = None
         self.machine = self._new_state_machine()
+        self._hold_far = False
         self.follower.stop()
         self.follower = FollowController(
-            self._execute_ascii,
+            self._follow_cmd,
             person_provider=self._follow_person,
         )
         self.follower.start()
@@ -667,7 +797,7 @@ class ShadowCarrierSimulation:
         while self.robot.step(self.timestep) != -1:
             now = time.monotonic()
             if self.autotest:
-                if self._autotest_update(self.robot.getTime()):
+                if self._demo_update(self.robot.getTime()):
                     print("[SIM] autotest done, quitting")
                     self._log({"type": "session_end", "reason": "autotest_done"})
                     self.robot.simulationQuit(0)
@@ -676,19 +806,35 @@ class ShadowCarrierSimulation:
                 key = self.keyboard.getKey()
                 if key > 0:
                     self._process_key(key)
+                if self.autopilot:
+                    if self._demo_update(time.monotonic() - self.autopilot_t0):
+                        self.autopilot = False
+                        self._execute_ascii("STOP")
+                        print("[SIM] demo autopilot finished")
 
-            if self.autotest and not self.autotest_motion:
-                # 观察模式: 物理漂移/接触冲量会把车推走(b5a0d78 首修, macOS 上仍复现),
-                # 每步钉回原点 —— 几何真值检测器的假定原点也依赖这一点
-                self.position_field.setSFVec3f([0, 0.06, 0])
-                self.rotation_field.setSFRotation([0, 0, 1, 0])
+            if self.machine.state != "HIDE":
+                self._hide_arrived = False
+                self._drive_to_safe_target_done = False
 
             self._publish_owner_lock()   # 模拟 follow 进程持续发布主人锁(限频 0.2s)
 
+            # HIDE 停靠在躲避点后持续注视主人(等效实机救援凝视; 主人去冰箱/回身递物都在视野内)
+            if ((not self.autotest or self.autotest_motion)
+                    and self.machine.state == "HIDE" and self._hide_arrived):
+                op = self.owner_translation.getSFVec3f()
+                self._face_toward((op[0], op[2]))
+
             detections = self._detections()
+            # WAIT 中主人不可见(如交接后主人绕到车后): 掉头寻找主人(等效实机搜索凝视)
+            if ((not self.autotest or self.autotest_motion)
+                    and self.machine.state == "WAIT" and not detections
+                    and self._owner_gt_dist() is not None
+                    and self._owner_gt_dist() < 6.0):
+                op = self.owner_translation.getSFVec3f()
+                self._face_toward((op[0], op[2]))
             if self.geom_det and not detections and not self._geom_warned:
                 self._geom_warned = True
-                rp = self.self_node.getPosition()
+                rp = self._kin_position()
                 op = self.owner_translation.getSFVec3f()
                 self._log({"type": "warn", "msg": "geom detector empty",
                            "robot": [round(v, 2) for v in rp],
@@ -704,12 +850,17 @@ class ShadowCarrierSimulation:
                         robot_moving=(abs(self.left_current) + abs(self.right_current) > 5),
                     )
                     if now >= self.manual_until:
-                        if (not self.autotest and out["action"] == "NONE"
+                        if ((not self.autotest or self.autotest_motion)
+                                and out["action"] == "NONE"
                                 and self.machine.state == "FOLLOW"):
                             self.follower.tick()
-                        elif (out["action"].startswith("GOTO_SAFE")
+                        elif (self.machine.state == "HIDE"
+                              and self.safe_target is not None
+                              and not self._hide_arrived
                               and not (self.autotest and not self.autotest_motion)):
                             self._drive_to_safe_target()
+                            if self._drive_to_safe_target_done:
+                                self._hide_arrived = True
                     self._log({"type": "frame", **out,
                                "dets": [d["label"] for d in detections],
                                "boxes": [[d["label"], [round(v) for v in d["bbox"]]]
@@ -719,7 +870,7 @@ class ShadowCarrierSimulation:
                                "owner": [round(v, 2) for v in self.owner_translation.getSFVec3f()],
                                "passerby": [round(v, 2) for v in self.passerby_translation.getSFVec3f()]
                                            if self.passerby_visible else None,
-                               "robot": [round(v, 2) for v in self.self_node.getPosition()],
+                               "robot": [round(v, 2) for v in self._kin_position()],
                                "sonar_cm": round(float(self.sonar.getValue()), 1)})
                 self.last_hri_tick = now
 
