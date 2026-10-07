@@ -1,0 +1,14 @@
+[Unit]
+Description=ShadowCarrier-RK Video Pipeline (YOLO NPU + MJPEG推流)
+After=network.target
+
+[Service]
+Type=simple
+User=kickpi
+WorkingDirectory=/home/kickpi/shadow_carrier_on_rockchip/scripts
+ExecStart=/usr/bin/python3 -u /home/kickpi/shadow_carrier_on_rockchip/scripts/video_stream_v7.py --port 8080 --camera /dev/camera0
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

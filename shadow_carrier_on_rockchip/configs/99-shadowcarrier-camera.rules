@@ -1,0 +1,4 @@
+# ShadowCarrier: 稳定摄像头节点 (Microdia 0c45:6366)
+# USB插拔会让 /dev/videoN 编号漂移 → 用 udev 规则建立固定符号链接
+# 安装: cp 99-shadowcarrier-camera.rules /etc/udev/rules.d/ && udevadm control --reload-rules && udevadm trigger --subsystem-match=video4linux
+SUBSYSTEM=="video4linux", ATTRS{idVendor}=="0c45", ATTRS{idProduct}=="6366", ATTR{index}=="0", SYMLINK+="camera0"

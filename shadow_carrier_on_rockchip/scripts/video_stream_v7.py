@@ -278,14 +278,18 @@ def main():
     import argparse
     p = argparse.ArgumentParser()
     p.add_argument('--port', type=int, default=8080)
-    p.add_argument('--camera', type=int, default=CAMERA_ID)
+    p.add_argument('--camera', type=str, default=str(CAMERA_ID),
+                   help="数字索引(如10)或设备路径(如/dev/camera0); USB插拔会让索引漂移,推荐路径")
     args = p.parse_args()
 
+    cam = args.camera
+    if isinstance(cam, str) and cam.isdigit():
+        cam = int(cam)
     print("Starting yolo_daemon (watchdog v7.2)...")
     start_daemon()
     time.sleep(0.5)
-    print(f"Camera /dev/video{args.camera}...")
-    threading.Thread(target=producer, args=(args.camera,), daemon=True).start()
+    print(f"Camera {cam}...")
+    threading.Thread(target=producer, args=(cam,), daemon=True).start()
     threading.Thread(target=consumer, daemon=True).start()
     threading.Thread(target=watchdog_thread, daemon=True).start()
     time.sleep(2)

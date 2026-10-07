@@ -602,7 +602,7 @@ document.querySelectorAll('.ctrl button').forEach(b=>{{
  b.addEventListener('pointerup',r);b.addEventListener('pointercancel',r);b.addEventListener('lostpointercapture',r);
 }});
 window.addEventListener('pointerup',r);window.addEventListener('blur',r);
-window.onload=function(){{setTimeout(function(){{document.getElementById('vfeed').src='http://192.168.4.1:{vp}/stream';}},500);}};
+window.onload=function(){{setTimeout(function(){{document.getElementById('vfeed').src='http://'+location.hostname+':{vp}/stream';}},500);}};
 </script></body></html>'''
         self.send_response(200); self.send_header('Content-Type','text/html; charset=utf-8'); self.end_headers(); self.wfile.write(html.encode())
 
