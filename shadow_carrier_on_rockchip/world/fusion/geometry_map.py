@@ -121,10 +121,20 @@ class RollingMap:
                 self.objects.append({"cls": cls, "bearing_deg": o.get("bearing_deg"),
                                      "dist_m": o.get("dist_m"), "last_seen": now, "hits": 1})
 
-        # 自由扇区(近环)
-        for s in snap.get("free_directions_deg", []):
-            key = str(int(s / SECTOR_DEG) % 8)
-            self.free_sectors[key] = now
+        # 自由扇区（按环记录, 键 "ring:sector"）——近+中环都给证据, 缓解 tilt=112 下近环稀疏
+        got_any = False
+        grid_polar = snap.get("grid_polar")
+        if grid_polar:
+            for ring in range(min(2, len(grid_polar))):     # 环 0/1
+                for s in range(min(8, len(grid_polar[ring]))):
+                    cell = grid_polar[ring][s]
+                    lab = cell.get("label", "") if isinstance(cell, dict) else str(cell)
+                    if lab == "free":
+                        self.free_sectors["%d:%d" % (ring, s)] = now
+                        got_any = True
+        if not got_any:                                     # 回退: 仅近环方向列表
+            for s in snap.get("free_directions_deg", []):
+                self.free_sectors["0:%d" % (int(s / SECTOR_DEG) % 8)] = now
 
         self._prune(now)
         return self
@@ -143,8 +153,14 @@ class RollingMap:
                           "sector": d["sector"], "hits": d["hits"],
                           "age_s": round(now - d["last_seen"], 1)})
         doors.sort(key=lambda x: x["age_s"])
-        free = [{"sector": int(k), "bearing_deg": int(k) * 45,
-                 "age_s": round(now - t, 1)} for k, t in self.free_sectors.items()]
+        free = []
+        for k, t in self.free_sectors.items():
+            try:
+                ring, sec = [int(x) for x in str(k).split(":")]
+            except ValueError:
+                ring, sec = 0, int(k)      # 兼容旧键(纯 sector)
+            free.append({"sector": sec, "ring": ring, "bearing_deg": sec * 45,
+                         "age_s": round(now - t, 1)})
         free.sort(key=lambda x: x["age_s"])
         return {"doors": doors, "free_sectors": free,
                 "frames": self.frames, "dist_valid": self.dist_valid,

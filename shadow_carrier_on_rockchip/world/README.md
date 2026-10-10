@@ -112,3 +112,22 @@
 3. 与 [HRI] 联合验证 HIDE 选点（滚动地图路径）；已问 [HRI] 是否将选点升级为"亲和度打分取最大"（见 EXCHANGE 10-04 21:00）
 4. （P2，冻结后）光流桥 daemon 接口、pose 接入 geometry_daemon、调度器落地
 5. IMU 消费（[云台] 探通 MPU6050 后）：yaw rate → 极坐标航向/地图一致性（已提接口需求）
+
+## sector_score v2 审核修复（2026-10-11）
+
+[世界] 代码审核发现并修复 6 项（`world/fusion/sector_score.py`），回归夹具 `test_sector_score.py`（13 断言，改权重/规则必须全绿）：
+
+| # | 问题（实测证据） | 修复 |
+|---|---|---|
+| A | 两热点近反向时圆形均值退化（门 0°/180° → path 罚到随机扇区） | 合成向量模长 `< OPPOSITE_GUARD(0.25)` 跳过 |
+| B | 全扇区被硬禁区覆盖时仍返回被 mask 的 best | `best_sector=None` + `fallback_masked=True` |
+| C | CLASS_W 物体被当成"路中间"热点 → 洪泛惩罚（5 物罚 5 扇区） | path 只吃 **门+家电**；类别走独立惩罚 |
+| D | `wall_back` 把"开阔地板"当"背墙"（free+wall_back 双重奖励） | 改为「近环 free + 中/远环 blocked」判定，**依赖 grid_polar**；无则不加成 |
+| E | 无 margin：两个并列最优仍 confident | 暴露 `margin`（best−second），`confident` 要求 ≥0.2 |
+| F | blind 加成落在 mask 扇区 | blind 跳过 masked；mask 分数按扇区去重 |
+
+配套（生产者侧，缓解"很少 confident"的结构问题）：
+- `geometry_map.py`：自由证据**按环记录**（键 `ring:sector`，近+中环），旧键（纯 sector）兼容映射为 ring 0
+- `geometry_daemon.py`：把 `grid_polar` 传给打分器（背墙判定用）
+
+新增输出字段（纯增量）：`margin` / `ranking` / `fallback_masked`。

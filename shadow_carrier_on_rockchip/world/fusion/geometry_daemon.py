@@ -341,7 +341,7 @@ def main():
         m = geometry_map.RollingMap.load(MAP_PATH).update(snap)
         m.save(MAP_PATH)
         snap["map"] = m.summary()
-        snap["sector_scores"] = sector_score.score_map(snap["map"])
+        snap["sector_scores"] = sector_score.score_map(snap["map"], grid_polar=snap.get("grid_polar"))
         with open(os.path.join(OUT, "grid.json"), "w") as f:
             json.dump(snap, f, ensure_ascii=False, indent=1)
         cv2.imwrite(os.path.join(OUT, "topdown.png"), draw_topdown(snap))
@@ -395,7 +395,7 @@ def main():
         m = geometry_map.RollingMap.load(MAP_PATH).update(snap)
         m.save(MAP_PATH)
         snap["map"] = m.summary()
-        snap["sector_scores"] = sector_score.score_map(snap["map"])
+        snap["sector_scores"] = sector_score.score_map(snap["map"], grid_polar=snap.get("grid_polar"))
         with open(os.path.join(OUT, "grid.json"), "w") as f:
             json.dump(snap, f, ensure_ascii=False, indent=1)
         cv2.imwrite(os.path.join(OUT, "topdown.png"), draw_topdown(snap))
@@ -426,7 +426,7 @@ def main():
                 m.update(snap)
                 m.save(MAP_PATH)
                 snap["map"] = m.summary()
-                snap["sector_scores"] = sector_score.score_map(snap["map"])
+                snap["sector_scores"] = sector_score.score_map(snap["map"], grid_polar=snap.get("grid_polar"))
                 snap["timing_ms"]["door_interval_s"] = door_interval
                 with open(os.path.join(OUT, "grid.json.tmp"), "w") as f:
                     json.dump(snap, f, ensure_ascii=False, indent=1)
