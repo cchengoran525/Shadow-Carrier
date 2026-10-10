@@ -31,9 +31,17 @@ The user reaches for their milk tea → Shadow Carrier predicts this and moves a
 No buttons. No voice commands. No app. **Body language is the interface.**
  
 This design philosophy is called **Implicit Interaction** — the user has no conscious awareness of operating the device, but the device is continuously reading their intent.
- 
+
+### Proactive Separation (the negative strategy)
+
+Instead of solving the hard problem — following robustly *through* a crowd — Shadow Carrier **reframes it**: when a crowd approaches, it **voluntarily separates**, steps aside to a safe, findable spot, waits, and re-unites using the same owner-lock + follow stack.
+
+> *Don't ask "how to stay close"; ask "what does a good companion do when people get in the way".* It steps aside politely — and comes back.
+
+This reframing turns an open research problem (continuous social navigation) into a tractable one (**separation-episode management**), while answering the same user need. See `docs/RESEARCH_POSITIONING.md`.
+
 ---
- 
+
 ## What Sets It Apart
  
 | Dimension | Existing Products | Shadow Carrier |
