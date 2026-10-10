@@ -21,7 +21,7 @@ DEFAULTS = {
                "wake_disp_m": 0.40, "near_dist_m": 1.2,
                "bend_near_dist_m": 2.5, "receive_exit_s": 0.8,
                "v_ema": 0.4, "v_max_mps": 2.5,
-               "approach_fast_mps": 0.8, "approach_slow_mps": 0.15,
+               "approach_fast_mps": 0.8, "approach_slow_mps": 0.06,
                "recede_mps": 0.05},
     "pixel": {"static_disp_px": 15, "wake_disp_px": 40, "near_h_px": 300,
               "approach_fast_rate": 1.2, "approach_slow_rate": 0.08},
