@@ -3,6 +3,7 @@
 import json
 import math
 import os
+import random
 import re
 import sys
 import tempfile
@@ -37,8 +38,14 @@ WHEEL_HALF_TRACK_M = 0.115
 # 走廊 demo 场景常量 (世界坐标 x, z)
 DORM_DOOR_POS = (-0.85, 3.0)        # 宿舍门内侧(路人入场点)
 HIDE_SPOT = (1.0, -4.3)             # 饮水机旁墙根: 离门 ~9m, 不挡饮水机/冰箱正前方
+SPOT_B = (1.05, -3.6)               # 备用躲避点(右墙, 离双门都远): hide_occupied 场景的回退目标
 FOLLOW_KEEP_MIN_M = 2.6             # 仿真车距保持: 近于此距离刹车暂停跟随
 FOLLOW_KEEP_RESUME_M = 3.0          # 远于此距离恢复推进(滞回)
+SCENARIO = os.environ.get("SIM_SCENARIO", "baseline")   # baseline/cross2/occlude/bench_block/hide_occupied/handoff_cross/phantom
+# 幻影注入: 复刻实机夜景失败模式(宿舍 95/98 帧含幻影 person) — 检测层噪声仿真
+PHANTOM_RATE = float(os.environ.get("SIM_PHANTOM_RATE",
+                                    "0.35" if os.environ.get("SIM_SCENARIO") == "phantom" else "0"))
+PHANTOM_SEED = int(os.environ.get("SIM_PHANTOM_SEED", "7"))
 
 
 def clamp(value, low, high):
@@ -102,6 +109,10 @@ class ShadowCarrierSimulation:
         self.last_blocked = False
 
         self.autotest = bool(os.environ.get("SIM_AUTOTEST"))
+        self.phantoms = []   # 幻影 person: [{x, z, life, conf}] — 检测层噪声, 非真实节点
+        if PHANTOM_RATE > 0:
+            random.seed(PHANTOM_SEED)
+            print(f"[SIM] 幻影注入 ON: rate={PHANTOM_RATE} seed={PHANTOM_SEED}")
         self.autotest_motion = os.environ.get("SIM_AUTOTEST_MOTION") == "1"
         # 自动测试硬开几何真值检测(不依赖环境变量传递): 仿真不做 YOLO 精度, 只验行为
         self.geom_det = True if self.autotest else (os.environ.get("SIM_GEOM_DET") == "1")
@@ -166,6 +177,53 @@ class ShadowCarrierSimulation:
         """掉头面向目标点(排练转场用): 设内部航向, 积分器每步写出"""
         pos = self._kin_position()
         self._kin_yaw = math.atan2(-(target[0] - pos[0]), -(target[1] - pos[2]))
+
+    def _scenario_post(self, t):
+        """鲁棒性场景钩子: 在基线剧本(_demo_update)之后调用, 覆盖路人/主人/道具位置。
+        每个场景只改自己关心的变量, 其余沿用基线。"""
+        if SCENARIO == "cross2":
+            # 基线只有一次路人交叉(P4); 这里在主人打水静止段(P2, 车在跟随推进)再加一次穿越,
+            # 路人正好从"车-主人"连线中间穿过 → 配合几何遮挡, 真正考验 owner lock
+            if 20.5 <= t < 26.5:
+                s = (t - 20.5) / 6.0
+                self._set_passerby(self._lerp2((-1.3, 2.2), (1.3, 1.6), s))
+        elif SCENARIO == "occlude":
+            # 主人在 P2 期间躲到冰箱后(左墙侧, 相对车被冰箱挡死) 8s → owner.json 过期
+            # → lost 流程 → 回到 (0,-5) 重新可见。考验丢失-重捕获全链路
+            if 22.0 <= t < 30.0:
+                self.owner_translation.setSFVec3f([-1.25, 0, -4.75])
+        elif SCENARIO == "bench_block":
+            # 长椅搬进行车道中央(基线它在左墙边): 车跟随经过 z≈0.2 时必然 sonar BLOCK
+            # → OBSTACLE STOP → t=28 撤走 → 恢复跟随。考验"受阻-等待-恢复"
+            # 落位技巧: t=12 首次触发时把长椅放在**机器人当前车道**(x=robot.x)——
+            # 固定放 x=0 会被机器人从旁边 ~1m 的空隙绕过(跟随贴主人车道, sonar 锥 ±10° 扫不到)
+            bench = self.robot.getFromDef("BENCH")
+            if bench is not None:
+                f = bench.getField("translation")
+                if 12.0 <= t < 28.0:
+                    if not getattr(self, "_bench_placed", False):
+                        rp = self._kin_position()
+                        f.setSFVec3f([clamp(rp[0], -0.9, 0.9), 0.25, 0.2])
+                        self._bench_placed = True
+                        self._log({"type": "bench_placed",
+                                   "at": [round(f.getSFVec3f()[0], 2), 0.2]})
+                else:
+                    f.setSFVec3f([-1.05, 0.25, 0.2])
+                    self._bench_placed = False
+        elif SCENARIO == "hide_occupied":
+            # 路人从 t=20 起一直站在首选躲避点 HIDE_SPOT → 亲和度打分应把它降权/硬剔除,
+            # HIDE 应改去备用点 SPOT_B(或门回退)。考验 sector_score 回退链
+            if t >= 20.0:
+                self._set_passerby(HIDE_SPOT)
+        elif SCENARIO == "handoff_cross":
+            # 交接窗口(P7-P8)路人垂直穿过"主人-车"视线 → owner.json 过期 2-3s,
+            # 恰好踩在 owner_lost_abort_s=2.0 的门槛上。考验交接中锁主中断的鲁棒性
+            if 63.0 <= t < 68.5:
+                s = (t - 63.0) / 5.5
+                self._set_passerby(self._lerp2((0.55, -3.4), (0.55, -4.9), s))
+        elif SCENARIO == "phantom":
+            # 幻影注入由 PHANTOM_RATE 全局生效, 剧本沿用基线 — 场景本身不改时间线
+            pass
 
     def _demo_update(self, t):
         """demo 全场景剧本(仿真秒): 跟出宿舍门→打水躲避→路人进门→隔壁取物回身递给车→一起回宿舍.
@@ -237,10 +295,12 @@ class ShadowCarrierSimulation:
         self.log_t0 = time.monotonic()
         self.log_file.write(json.dumps({"type": "session_start",
                                         "t0": time.time(),
+                                        "scenario": SCENARIO,
                                         "geom_det": self.geom_det,
                                         "autotest": self.autotest,
                                         "fx_px": round(self.fx_px, 1)}) + "\n")
         print(f"[SIM] 黑匣子: {path}")
+        print(f"[SIM] scenario = {SCENARIO}")
 
     def _log(self, record):
         if not getattr(self, "log_file", None):
@@ -284,15 +344,27 @@ class ShadowCarrierSimulation:
             self._grid_object("SIDE_DOOR", "door"),
             self._grid_object("WATER_DISPENSER", "water dispenser"),
             self._grid_object("REFRIGERATOR", "refrigerator"),
+            self._grid_object("PASSERBY", "person") if self.passerby_visible else None,
         ) if o]
-        # 自由方向 = 场景躲避点(HIDE_SPOT)相对车的方位角(仿真实机滚动地图的自由扇区)
+        # 幻影 person 也进网格(镜像实机: YOLO 检测喂 grid) — 与真 person 同权重(当前无权重)
+        rp_grid = self._kin_position()
+        for ph in self.phantoms:
+            objects.append({"cls": "person",
+                            "bearing_deg": self._bearing_to((ph["x"], 0.0, ph["z"])),
+                            "dist_m": round(math.hypot(ph["x"] - rp_grid[0],
+                                                       ph["z"] - rp_grid[2]), 2)})
+        # 自由方向 = 已知躲避点(主/备)相对车的方位角(仿真实机滚动地图的自由扇区)
+        # SPOT_B 仅 hide_occupied 场景注入(模拟"机器人知道两个候选躲避点");
+        # 基线只认一个点, 避免 margin 规则改变已验证的基线选点
         free = []
         rp = self._kin_position()
         yaw = self._yaw()
-        dx, dz = HIDE_SPOT[0] - rp[0], HIDE_SPOT[1] - rp[2]
-        lx = math.cos(yaw) * dx - math.sin(yaw) * dz
-        lz = math.sin(yaw) * dx + math.cos(yaw) * dz
-        free.append(round(math.degrees(math.atan2(lx, -lz)), 1))
+        spots = (HIDE_SPOT, SPOT_B) if SCENARIO == "hide_occupied" else (HIDE_SPOT,)
+        for spot in spots:
+            dx, dz = spot[0] - rp[0], spot[1] - rp[2]
+            lx = math.cos(yaw) * dx - math.sin(yaw) * dz
+            lz = math.sin(yaw) * dx + math.cos(yaw) * dz
+            free.append(round(math.degrees(math.atan2(lx, -lz)), 1))
         snapshot = {
             "ts": time.time(),
             "objects": objects,
@@ -330,14 +402,11 @@ class ShadowCarrierSimulation:
         except OSError as error:
             print(f"[SIM] owner.json publish error: {error}")
 
-    def _synthetic_box(self, node, w_m, h_m):
-        """3D 位置 + 针孔模型合成检测框; 深度窗外返回 None。
-        用车体真实位姿投影(运动模式必须); 观察模式车被钉在原点, 结果与旧假定原点一致。
-        横向按 lx/depth 投影像素偏移, 双人场景两个框才能真正分开。"""
-        pos = node.getField("translation").getSFVec3f()
+    def _project_box(self, x, z, w_m, h_m):
+        """世界 (x,z) 的 Person 尺寸 → 针孔投影 bbox; 深度窗外返回 None"""
         rp = self._kin_position()
         yaw = self._yaw()
-        dx, dz = pos[0] - rp[0], pos[2] - rp[2]
+        dx, dz = x - rp[0], z - rp[2]
         lx = math.cos(yaw) * dx - math.sin(yaw) * dz
         lz = math.sin(yaw) * dx + math.cos(yaw) * dz
         depth = -lz   # 车前方为 -z
@@ -349,13 +418,147 @@ class ShadowCarrierSimulation:
         cy = self.camera.getHeight() / 2
         return [cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2]
 
-    def _geom_detections(self):
-        """几何真值检测: 主人 / 手持物 / 路人(可见时)"""
+    def _synthetic_box(self, node, w_m, h_m):
+        """3D 位置 + 针孔模型合成检测框; 用车体真实位姿投影(运动模式必须)。"""
+        pos = node.getField("translation").getSFVec3f()
+        return self._project_box(pos[0], pos[2], w_m, h_m)
+
+    PROP_H = {"BENCH": 0.5, "WATER_DISPENSER": 1.1, "REFRIGERATOR": 1.7}
+
+    def _prop_boxes(self):
+        """道具 AABB (x, z, half_x, half_z, 高度m), 读实时位置(bench_block 会搬动长椅)。
+        高度用于感知遮挡: 0.5m 长椅挡声呐(9.5cm 高)但不挡站立者的视线。"""
+        boxes = []
+        for def_name, half in (("BENCH", (0.175, 0.6)),
+                               ("WATER_DISPENSER", (0.225, 0.21)),
+                               ("REFRIGERATOR", (0.3, 0.3))):
+            node = self.robot.getFromDef(def_name)
+            if node is not None:
+                p = node.getPosition()
+                boxes.append((p[0], p[2], half[0], half[1], self.PROP_H[def_name]))
+        return boxes
+
+    def _person_boxes(self, exclude=None):
+        boxes = []
+        if self.passerby_visible:
+            p = self.passerby_translation.getSFVec3f()
+            boxes.append((p[0], p[2], 0.31, 0.19, "PASSERBY", 1.66))
+        if exclude != "OWNER":
+            o = self.owner_translation.getSFVec3f()
+            boxes.append((o[0], o[2], 0.31, 0.19, "OWNER", 1.66))
+        return boxes
+
+    def _seg_blocked(self, ax, az, bx, bz, exclude, target_h):
+        """2D 线段-AABB 相交 + 高度感知: 道具仅在 prop_h >= target_h - 0.35 时遮挡视线
+        (0.5m 长椅挡不住 1.66m 人的视线; 人与人间永远互相遮挡)。"""
+        occluders = [(x, z, hx, hz, name, h) for (x, z, hx, hz, name, h)
+                     in self._person_boxes(exclude)]
+        occluders += [(x, z, hx, hz, "", h) for (x, z, hx, hz, h) in self._prop_boxes()]
+        for ox, oz, hx, hz, name, h in occluders:
+            if name == exclude:
+                continue
+            if name == "" and h < target_h - 0.35:
+                continue   # 矮道具不挡更高目标的视线
+            dx, dz = bx - ax, bz - az
+            tmin, tmax = 0.0, 1.0
+            for a, b, lo, hi in ((ax, dx, ox - hx, ox + hx), (az, dz, oz - hz, oz + hz)):
+                if abs(b) < 1e-9:
+                    if a < lo or a > hi:
+                        tmin, tmax = 1.0, 0.0   # 平行且在外 → 无交
+                        break
+                else:
+                    t1, t2 = (lo - a) / b, (hi - a) / b
+                    if t1 > t2:
+                        t1, t2 = t2, t1
+                    tmin, tmax = max(tmin, t1), min(tmax, t2)
+                    if tmin > tmax:
+                        break
+            if tmin <= tmax and tmax >= 0.0 and tmin <= 1.0:
+                return True
+        return False
+
+    @staticmethod
+    def _ray_aabb_t(ax, az, dx, dz, ox, oz, hx, hz, seg_len):
+        """射线 (ax,az) 方向 (dx,dz) 与 AABB 的最近入射 t∈[0,1] (段长 seg_len), 无交返回 None"""
+        tmin, tmax = 0.0, 1.0
+        for a, b, lo, hi in ((ax, dx, ox - hx, ox + hx), (az, dz, oz - hz, oz + hz)):
+            if abs(b) < 1e-9:
+                if a < lo or a > hi:
+                    return None
+            else:
+                t1, t2 = (lo - a) / b, (hi - a) / b
+                if t1 > t2:
+                    t1, t2 = t2, t1
+                tmin, tmax = max(tmin, t1), min(tmax, t2)
+                if tmin > tmax:
+                    return None
+        return tmin if tmax >= 0.0 else None
+
+    def _virtual_sonar_cm(self):
+        """虚拟超声波(cm): Webots sonar 设备在本世界不返回数据(自测: 直冲端墙 30s 恒 200,
+        2026-10-11), 改用几何真值 5 射线(±10°, 对应设备 aperture 0.35)求最近障碍,
+        喂给与真机相同的 blocked 行为代码路径。遮挡体 = 道具 + 四面墙 + 人。"""
+        rp = self._kin_position()
+        yaw = self._yaw()
+        best_m = 2.0
+        boxes = [b[:4] for b in self._prop_boxes()] + [b[:4] for b in self._person_boxes()]
+        boxes += [(-1.4, 0.0, 0.05, 6.2), (1.4, 0.0, 0.05, 6.2),
+                  (0.0, -6.05, 1.45, 0.05), (0.0, 6.05, 1.45, 0.05)]
+        for da in (-0.175, -0.0875, 0.0, 0.0875, 0.175):
+            a = yaw + da
+            dx, dz = -math.sin(a), -math.cos(a)   # 前进方向, 与运动学积分一致
+            t_best = None
+            for (ox, oz, hx, hz) in boxes:
+                t = self._ray_aabb_t(rp[0], rp[2], dx, dz, ox, oz, hx, hz, 2.0)
+                if t is not None and (t_best is None or t < t_best):
+                    t_best = t
+            best_m = min(best_m, (t_best if t_best is not None else 1.0) * 2.0)
+        return best_m * 100.0
+
+    def _phantoms_update(self):
+        """幻影 person 检测注入(复刻实机夜景失败模式: 宿舍 95/98 帧含幻影):
+        每拍以 PHANTOM_RATE 概率在车前随机位置生成一个存活 3-10 拍的假 person 框(成簇)。
+        只进检测列表与网格快照, 不是真实节点 — 检验认主回退通道与 HIDE/RECEIVE 的抗噪。"""
+        if PHANTOM_RATE <= 0:
+            return
+        if random.random() < PHANTOM_RATE:
+            rp = self._kin_position()
+            a = self._kin_yaw
+            d = random.uniform(1.2, 4.5)
+            px = clamp(rp[0] - math.sin(a) * d + random.uniform(-1.2, 1.2), -1.25, 1.25)
+            pz = clamp(rp[2] - math.cos(a) * d + random.uniform(-1.0, 1.0), -5.8, 5.8)
+            self.phantoms.append({"x": px, "z": pz,
+                                  "life": random.randint(3, 10),
+                                  "conf": round(random.uniform(0.55, 0.9), 2)})
+        for ph in self.phantoms:
+            ph["life"] -= 1
+        self.phantoms[:] = [p for p in self.phantoms if p["life"] > 0]
+
+    def _phantom_detections(self):
         out = []
-        for label, node, w_m, h_m in (
-                ("person", self.owner_node, self.PERSON_W, self.PERSON_H),
-                ("bottle", self.bottle_node, 0.09, 0.22),
-                ("person", self.passerby_node, self.PERSON_W, self.PERSON_H)):
+        for ph in self.phantoms:
+            bbox = self._project_box(ph["x"], ph["z"], self.PERSON_W * 0.8, self.PERSON_H)
+            if bbox is not None:
+                out.append({"label": "person", "conf": ph["conf"], "bbox": bbox})
+        return out
+
+    def _owner_lock_stale(self):
+        """owner.json 是否过期(>1s 未发布) — 过期时 _pick_owner 会回退到 conf 最大 person,
+        幻影由此进入'被当成主人'的通道(实机夜景病根的 HRI 侧残留)"""
+        try:
+            o = json.loads(self.owner_json_path.read_text(encoding="utf-8"))
+            return time.time() - o.get("ts", 0) > 1.0
+        except Exception:
+            return True
+
+    def _geom_detections(self):
+        """几何真值检测: 主人 / 手持物 / 路人(可见时); 带物体遮挡判断(§鲁棒性:
+        路人穿过主人-车连线 / 主人躲在冰箱后 → 检测框消失, 与实机 YOLO 行为对齐)"""
+        out = []
+        for label, node, w_m, h_m, exclude, target_h in (
+                ("person", self.owner_node, self.PERSON_W, self.PERSON_H, "OWNER", 1.66),
+                ("bottle", self.bottle_node, 0.09, 0.22, "OWNER", 0.95),
+                ("person", self.passerby_node, self.PERSON_W, self.PERSON_H, "PASSERBY", 1.66)):
             if node is None:
                 continue
             if node is self.passerby_node and not self.passerby_visible:
@@ -363,8 +566,12 @@ class ShadowCarrierSimulation:
             bbox = self._synthetic_box(node, w_m, h_m)
             if bbox is None:
                 continue
+            pos = node.getField("translation").getSFVec3f()
+            rp = self._kin_position()
+            if self._seg_blocked(rp[0], rp[2], pos[0], pos[2], exclude, target_h):
+                continue
             out.append({"label": label, "conf": 0.95, "bbox": bbox})
-        return out
+        return out + self._phantom_detections()
 
     def _detections(self):
         if self.geom_det:
@@ -539,7 +746,7 @@ class ShadowCarrierSimulation:
         match = re.search(r"GOTO_SAFE\s+(-?\d+(?:\.\d+)?)", action)
         bearing = float(match.group(1)) if match else 0.0
         position = self._kin_position()
-        for spot in (HIDE_SPOT,):
+        for spot in (HIDE_SPOT, SPOT_B):
             diff = abs((self._bearing_to((spot[0], 0.0, spot[1])) - bearing + 180) % 360 - 180)
             if diff <= 55:
                 # 航向直接由几何朝向给出(与 _face_toward 同一约定), 不经扇区角换算
@@ -797,11 +1004,19 @@ class ShadowCarrierSimulation:
         while self.robot.step(self.timestep) != -1:
             now = time.monotonic()
             if self.autotest:
-                if self._demo_update(self.robot.getTime()):
+                if SCENARIO == "sonar_selftest":
+                    # 判别实验: 直冲端墙 30s(仿真秒), 看 sonar 是否读数 → 区分"设备坏"vs"朝向错"
+                    self._execute_ascii("MOVE F 255")
+                    if self.robot.getTime() > 30.0:
+                        self._log({"type": "session_end", "reason": "sonar_selftest_done"})
+                        self.robot.simulationQuit(0)
+                        return
+                elif self._demo_update(self.robot.getTime()):
                     print("[SIM] autotest done, quitting")
                     self._log({"type": "session_end", "reason": "autotest_done"})
                     self.robot.simulationQuit(0)
                     return
+                self._scenario_post(self.robot.getTime())
             else:
                 key = self.keyboard.getKey()
                 if key > 0:
@@ -825,6 +1040,7 @@ class ShadowCarrierSimulation:
                 self._face_toward((op[0], op[2]))
 
             detections = self._detections()
+            self._phantoms_update()
             # WAIT 中主人不可见(如交接后主人绕到车后): 掉头寻找主人(等效实机搜索凝视)
             if ((not self.autotest or self.autotest_motion)
                     and self.machine.state == "WAIT" and not detections
@@ -839,12 +1055,19 @@ class ShadowCarrierSimulation:
                 self._log({"type": "warn", "msg": "geom detector empty",
                            "robot": [round(v, 2) for v in rp],
                            "owner": [round(v, 2) for v in op]})
-            distance_cm = float(self.sonar.getValue())
+            distance_cm = self._virtual_sonar_cm()
             blocked = 0 < distance_cm <= SONAR_STOP_CM
 
             if now - self.last_hri_tick >= HRI_PERIOD_S:
                 self._refresh_grid()
                 if self.hri_enabled:
+                    # 认主回退通道暴露: owner.json 过期 + 幻影在场 → _pick_owner 将按 conf
+                    # 收编幻影为"主人"(实机夜景病根的 HRI 侧残留通道), 记录暴露时机
+                    if self.phantoms and self._owner_lock_stale():
+                        self._log({"type": "phantom_adoption_risk",
+                                   "n_phantom": len(self.phantoms),
+                                   "confs": [p["conf"] for p in self.phantoms],
+                                   "state": self.machine.state})
                     out = self.machine.feed(
                         detections,
                         robot_moving=(abs(self.left_current) + abs(self.right_current) > 5),
@@ -871,7 +1094,8 @@ class ShadowCarrierSimulation:
                                "passerby": [round(v, 2) for v in self.passerby_translation.getSFVec3f()]
                                            if self.passerby_visible else None,
                                "robot": [round(v, 2) for v in self._kin_position()],
-                               "sonar_cm": round(float(self.sonar.getValue()), 1)})
+                               "phantoms": len(self.phantoms),
+                               "sonar_cm": round(distance_cm, 1)})
                 self.last_hri_tick = now
 
             self._ramp_motors(now, blocked)
