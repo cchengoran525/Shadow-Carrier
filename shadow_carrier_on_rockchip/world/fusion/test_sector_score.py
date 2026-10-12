@@ -83,5 +83,25 @@ r = S(map_summary={"doors": [{"bearing_deg": 0, "age_s": 99}],
                    "free_sectors": [{"sector": 3, "age_s": 99}]})
 check("T10 过期数据被忽略", r["reasons"]["door_pen"] == [] and r["reasons"]["free"] == [])
 
+# T11 person 负权重（hide_occupied FAIL 修复）：被占扇区不得成为最优
+pol = [[{"label": "free"} for _ in range(8)] for _ in range(3)]
+pol[1][2] = {"label": "blocked"}          # 2 号扇区背后有墙（+wall_back）
+occ = {"free_sectors": [{"sector": 2, "ring": 0, "age_s": 1},
+                        {"sector": 6, "ring": 0, "age_s": 1}],
+       "objects": [{"cls": "person", "bearing_deg": 90, "age_s": 1}]}   # 人站在 2 号
+r = S(map_summary=occ, grid_polar=pol)
+check("T11 被占扇区有 person 惩罚", r["reasons"]["class_w"] == [2], str(r["reasons"]))
+check("T11b 最优避开被占扇区", r["best_sector"] != 2, "scores=%s best=%s" % (r["scores"], r["best_sector"]))
+# 量级校验：被占扇区 = free(1.0)+wall_back(0.7)+person(-1.2) = 0.5 < 对照 1.0
+check("T11c 被占扇区分数低于干净自由扇区", r["scores"][2] < r["scores"][6],
+      "occ=%s clean=%s" % (r["scores"][2], r["scores"][6]))
+
+# T12 同扇区多人叠加（越挤越差）
+r1 = S(map_summary={"objects": [{"cls": "person", "bearing_deg": 90, "age_s": 1}]})
+r2 = S(map_summary={"objects": [{"cls": "person", "bearing_deg": 80, "age_s": 1},
+                                {"cls": "person", "bearing_deg": 100, "age_s": 1}]})
+check("T12 同扇区多人叠加更差", r2["scores"][2] < r1["scores"][2],
+      "1人=%s 2人=%s" % (r1["scores"][2], r2["scores"][2]))
+
 print("\n== %d passed, %d failed ==" % (len(PASS), len(FAIL)))
 sys.exit(1 if FAIL else 0)

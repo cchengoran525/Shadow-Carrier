@@ -55,6 +55,9 @@ CLASS_W = {
     "cash register": -1.0, "fitting room": -1.0, "shop entrance": -0.9,
     "queue": -1.2, "kiosk": -0.8, "staircase": -1.8,
     "display stand": -0.6, "playground": -0.7, "pet": -0.5,
+    # 当前占用（10-12：hide_occupied FAIL 根因——站着 person 的扇区未扣分 →
+    # HIDE 反把它当最优）。量级对齐 "queue"；同扇区多人叠加（越挤越差）。
+    "person": -1.2,
 }
 
 HARD_MASK_CLASSES = {"toilet", "bathroom door", "escalator", "fire extinguisher",
