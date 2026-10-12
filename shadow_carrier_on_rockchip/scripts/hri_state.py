@@ -44,7 +44,8 @@ DEFAULTS = {
     "pose": {"enabled": False, "json": "/dev/shm/pose_out.json",
              "max_age_s": 1.5, "iou_min": 0.1},
     "owner": {"source": "none", "file": "/dev/shm/owner.json",
-              "max_age_s": 1.0, "iou_min": 0.2},
+              "max_age_s": 1.0, "iou_min": 0.2, "lock_gate_px": 140,
+              "continuity_px": 160, "reacquire_s": 2.0},
 }
 
 
@@ -137,6 +138,8 @@ class HRIStateMachine:
         self.v_sm = None
         self.recede_since = None
         self.fast_run = 0
+        self.last_owner_cx = None
+        self.last_owner_box = None
 
     # ---- 内部工具 ----
     def _set_state(self, new, reason=""):
@@ -169,40 +172,62 @@ class HRIStateMachine:
         return o.get("bbox")
 
     def _pick_owner(self, dets, score_fn):
+        """选主人。优先级: owner.json 主人锁 → (高敏态冻结) → conf 回退(带位置连续性闸)。"""
+        cfg = self.p.get("owner", {})
         floor = self.p["classes"]["owner_conf_min"]
-        # 优先: 认主共享的主人框(仅在其新鲜且能匹配上某个 person 时)
-        obox = self._owner_box_from_file(time.time())
+        now = time.time()
+
+        def score(d):
+            return score_fn(d) if score_fn else d.get("conf", 0)
+
+        persons = [d for d in dets if d.get("label") == "person" and score(d) > floor]
+
+        # 1) 认主共享的主人框(新鲜): 取中心离锁框最近的 person(≤lock_gate_px)
+        obox = self._owner_box_from_file(now)
         if obox:
-            best, best_r = None, self.p.get("owner", {}).get("iou_min", 0.2)
-            for d in dets:
-                if d.get("label") != "person" or d.get("conf", 0) <= floor:
-                    continue
-                r = iou_ratio(d["bbox"], obox)
-                if r >= best_r:
-                    best, best_r = d, r
+            lcx, lcy = (obox[0] + obox[2]) / 2, (obox[1] + obox[3]) / 2
+            gate = cfg.get("lock_gate_px", 140)
+            best, best_d = None, gate
+            for d in persons:
+                cx = (d["bbox"][0] + d["bbox"][2]) / 2
+                cy = (d["bbox"][1] + d["bbox"][3]) / 2
+                dist = ((cx - lcx) ** 2 + (cy - lcy) ** 2) ** 0.5
+                if dist <= best_d:
+                    best, best_d = d, dist
             if best is not None:
-                self.last_owner_cx = (best["bbox"][0] + best["bbox"][2]) / 2
+                self._remember_owner(best)
                 return best
-        cands = []
-        floor = self.p["classes"]["owner_conf_min"]
-        for d in dets:
-            if d.get("label") != "person":
-                continue
-            s = score_fn(d) if score_fn else d.get("conf", 0)
-            if s > floor:
-                cands.append((s, d))
-        if not cands:
+
+        # 2) 主人锁不可用(source=file): 一律不认任何人 — 机主原则 L2「宁可不动, 不可认错人」
+        #    彻底切断"conf 回退 → 幻影/路人被收编"的通道
+        if cfg.get("source") == "file":
             return None
-        best_s = max(s for s, _ in cands)
-        # 连续性优先: 分数接近的候选里, 选离上一帧主人中心最近的, 避免双人跳变
-        near = [(s, d) for s, d in cands if s >= best_s - 0.15]
-        last_cx = getattr(self, "last_owner_cx", None)
-        if last_cx is not None and len(near) > 1:
-            best = min(near, key=lambda t: abs((t[1]["bbox"][0] + t[1]["bbox"][2]) / 2 - last_cx))[1]
+
+        if not persons:
+            return None
+
+        # 3) 非 file 源才走 conf 回退 + 位置连续性闸
+        last_cx = self.last_owner_cx
+        recent = (now - self.owner_last_seen) < cfg.get("reacquire_s", 2.0)
+        if recent and last_cx is not None:
+            gate = cfg.get("continuity_px", 160)
+            gated = [d for d in persons
+                     if abs((d["bbox"][0] + d["bbox"][2]) / 2 - last_cx) <= gate]
+            if not gated:
+                return None      # 全是"新位置"的候选(幻影簇/路人) -> 宁可不认
+            persons = gated
+        best_s = max(score(d) for d in persons)
+        near = [d for d in persons if score(d) >= best_s - 0.15]
+        if last_cx is not None and recent and len(near) > 1:
+            best = min(near, key=lambda d: abs((d["bbox"][0] + d["bbox"][2]) / 2 - last_cx))
         else:
-            best = max(near, key=lambda t: t[0])[1]
-        self.last_owner_cx = (best["bbox"][0] + best["bbox"][2]) / 2
+            best = max(near, key=score)
+        self._remember_owner(best)
         return best
+
+    def _remember_owner(self, d):
+        self.last_owner_cx = (d["bbox"][0] + d["bbox"][2]) / 2
+        self.last_owner_box = list(d["bbox"])
 
     def _pose_offering(self, owner_box, now):
         """[世界] pose_server v2 的 offering 作为 OR 辅助通道(默认关)."""
@@ -458,6 +483,7 @@ class HRIStateMachine:
                 "v_mps": round(v_sm, 2),
                 "v_raw": round(approach_mps, 2) if approach_mps is not None else None,
                 "held": held, "bend": bend,
+                "owner_bbox": [int(v) for v in owner["bbox"]],
                 "mode": "clip" if clipped else ("metric" if dist_ok else "pixel")}
 
     @staticmethod
