@@ -45,13 +45,45 @@ The controller emulates the real-machine cross-process owner lock: the follow si
 
 Use this to iterate behavior and interfaces, then validate timing and calibration on the physical robot.
 
+## Robustness Suite（8 场景，2026-10-12/13）
+
+`run_robustness.sh`（跑测）+ `analyze_robustness.py`（判定）+ 控制器 `SIM_SCENARIO` 场景系统，realtime 逐场景自动判定。**当前 8/8 PASS**。
+
+| 场景 | 扰动 |
+|---|---|
+| `baseline` | 回归基线 |
+| `cross2` | 推进段路人横穿"主人-车"连线 |
+| `occlude` | 主人躲冰箱后 8s（真遮挡） |
+| `bench_block` | 长椅挡车道（考验虚拟声呐 + HIDE 回退链） |
+| `handoff_cross` | 交接窗口路人垂直穿越视线 |
+| `hide_occupied` | 路人常驻首选躲避点（考验"换扇区回退"） |
+| `phantom` | 幻影注入（复刻宿舍夜景 95/98 帧失败模式，`SIM_PHANTOM_SEED` 可复现） |
+
+```bash
+./run_robustness.sh                              # 全场景 × 1 次（~11 min）
+./run_robustness.sh "baseline hide_occupied" 3   # 指定场景 × 3
+python3 analyze_robustness.py logs/rob_*.jsonl   # 单独出报告
+# Windows 单场景: _run_scenario.bat <scenario> [phantom_seed] [phantom_rate]
+```
+
+**三条纪律（踩过的坑）**：
+1. **必须 `--mode=realtime`**——`fast` 模式墙钟与仿真时间脱钩 3.4×，时序阈值全乱（仓库旧"参考日志"即 fast 失败产物）。
+2. **HIDE 候选点（如 `SPOT_B`）必须落在"无门 / 无家电 / 无人"且**墙内**的扇区**——否则会被亲和度打分正确拒绝（曾两次踩：先与冰箱同扇区、再越出左墙）。
+3. `logs/` 为测试产物，不入库。
+
+`Simulated Interfaces` 补充：Webots 原生 sonar 在本世界失效，控制器用**几何真值虚拟声呐**（5 射线 ±10°）；几何真值检测带**高度感知遮挡**（路人可真挡住主人框，owner lock 被真考验）。
+
 ## Layout
 
 ```text
 webots/
 ├── worlds/shadow_carrier.wbt
 ├── controllers/shadow_carrier/shadow_carrier.py
-├── run_demo.sh         (macOS/Linux; motion mode, full demo scenario ~95 s)
-├── run_autotest.sh     (macOS/Linux; observe mode, state-machine regression)
-└── run_autotest.bat    (Windows)
+├── run_demo.sh            (macOS/Linux; motion mode, full demo scenario ~95 s)
+├── run_autotest.sh        (macOS/Linux; observe mode, state-machine regression)
+├── run_robustness.sh      (macOS/Linux; 8-scenario robustness suite + report)
+├── analyze_robustness.py  (parse logs/rob_*.jsonl → per-scenario verdict + summary)
+├── run_autotest.bat       (Windows)
+├── _run_scenario.bat      (Windows; single scenario: <scenario> [seed] [rate])
+└── _run_demo_once.bat     (Windows; one-shot full demo)
 ```
