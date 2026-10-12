@@ -113,5 +113,27 @@ check("T13 被占且无干净替代 → 不 confident",
       r["best_occupied"] and not r["confident"] and r["best_score"] is not None and r["best_score"] > 0,
       str(r))
 
+# T14 hide_occupied 走廊复现（10-13）：自由点与"饮水机+冰箱"同扇区 → 被正确拒绝
+# 坐标来自 Webots 场景实测: robot(-0.23,-2.46) yaw0; 饮水机 bearing 4.0°, 冰箱 -16.0°,
+# HIDE_SPOT 33.8°, SPOT_B(新) -16.8°(=冰箱方向!) → sector0 双家电 -1.6, 全场无正分
+corridor = {"doors": [{"bearing_deg": -168.9, "age_s": 1}, {"bearing_deg": 119.3, "age_s": 1}],
+            "free_sectors": [{"bearing_deg": 33.8, "age_s": 1}, {"bearing_deg": -16.8, "age_s": 1}],
+            "objects": [{"cls": "door", "bearing_deg": -168.9, "age_s": 1},
+                        {"cls": "door", "bearing_deg": 119.3, "age_s": 1},
+                        {"cls": "water dispenser", "bearing_deg": 4.0, "age_s": 1},
+                        {"cls": "refrigerator", "bearing_deg": -16.0, "age_s": 1},
+                        {"cls": "person", "bearing_deg": 33.8, "age_s": 1}]}
+r = S(map_summary=corridor)
+check("T14 自由点与双家电同扇区 → 拒绝 confident（防'在冰箱前躲'）",
+      (not r["confident"]) and r["best_score"] <= 0.0,
+      "scores=%s best=%s conf=%s" % (r["scores"], r["best_sector"], r["confident"]))
+# T14b 同走廊，但自由点落在无物体扇区（-45°=sector7）→ 应 confident
+corridor_ok = dict(corridor)
+corridor_ok["free_sectors"] = [{"bearing_deg": 33.8, "age_s": 1}, {"bearing_deg": -45.0, "age_s": 1}]
+r = S(map_summary=corridor_ok)
+check("T14b 自由点落在干净扇区 → confident 且选中它",
+      r["confident"] and r["best_bearing_deg"] == -45.0,
+      "scores=%s best=%s conf=%s" % (r["scores"], r["best_bearing_deg"], r["confident"]))
+
 print("\n== %d passed, %d failed ==" % (len(PASS), len(FAIL)))
 sys.exit(1 if FAIL else 0)
