@@ -199,6 +199,8 @@ def score_map(map_summary, grid_polar=None):
     # ---- 候选与排序 ----
     cands = [s for s in range(N_SECTORS) if s not in masked]
     fallback_masked = not cands
+    person_secs = set(reasons["class_w"]) & set(
+        _sector_of(o.get("bearing_deg", 0)) for o in objects if o.get("cls") == "person")
     if fallback_masked:
         best = None
         best_score = None
@@ -211,8 +213,14 @@ def score_map(map_summary, grid_polar=None):
         second = scores[ranking[1]] if len(ranking) > 1 else None
         margin = round(best_score - second, 2) if second is not None else None
 
-    confident = (best is not None and bool(free_secs) and scores[best] > 0.0
-                 and (margin is None or margin >= MARGIN_MIN))
+    # 被占且无干净替代 → 不给 confident（"没有好点"好过"给一个差点"，10-12 hide_occupied）
+    best_occupied = best is not None and best in person_secs
+    clean_alt = any(scores[s] > 0.0 and s not in person_secs for s in cands if s != best)
+    if best_occupied and not clean_alt:
+        confident = False
+    else:
+        confident = (best is not None and bool(free_secs) and scores[best] > 0.0
+                     and (margin is None or margin >= MARGIN_MIN))
 
     return {"scores": [round(x, 2) for x in scores],
             "best_sector": best,
@@ -220,6 +228,7 @@ def score_map(map_summary, grid_polar=None):
             "best_score": best_score,
             "margin": margin,
             "confident": confident,
+            "best_occupied": best_occupied,
             "fallback_masked": fallback_masked,
             "ranking": [[s, round(scores[s], 2)] for s in ranking],
             "masked_sectors": sorted(masked),

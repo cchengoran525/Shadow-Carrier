@@ -103,5 +103,15 @@ r2 = S(map_summary={"objects": [{"cls": "person", "bearing_deg": 80, "age_s": 1}
 check("T12 同扇区多人叠加更差", r2["scores"][2] < r1["scores"][2],
       "1人=%s 2人=%s" % (r1["scores"][2], r2["scores"][2]))
 
+# T13 唯一自由证据在被占扇区、且无干净替代 → 不给 confident（宁缺毋滥）
+pol2 = [[{"label": "free"} for _ in range(8)] for _ in range(3)]
+pol2[1][2] = {"label": "blocked"}      # 2 号背后有墙 → 1.7 分
+r = S(map_summary={"free_sectors": [{"sector": 2, "ring": 0, "age_s": 1}],
+                   "objects": [{"cls": "person", "bearing_deg": 90, "age_s": 1}]},
+      grid_polar=pol2)
+check("T13 被占且无干净替代 → 不 confident",
+      r["best_occupied"] and not r["confident"] and r["best_score"] is not None and r["best_score"] > 0,
+      str(r))
+
 print("\n== %d passed, %d failed ==" % (len(PASS), len(FAIL)))
 sys.exit(1 if FAIL else 0)
