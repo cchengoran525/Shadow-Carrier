@@ -38,7 +38,7 @@ WHEEL_HALF_TRACK_M = 0.115
 # 走廊 demo 场景常量 (世界坐标 x, z)
 DORM_DOOR_POS = (-0.85, 3.0)        # 宿舍门内侧(路人入场点)
 HIDE_SPOT = (1.0, -4.3)             # 饮水机旁墙根: 离门 ~9m, 不挡饮水机/冰箱正前方
-SPOT_B = (1.05, -3.6)               # 备用躲避点(右墙, 离双门都远): hide_occupied 场景的回退目标
+SPOT_B = (-1.15, -5.5)              # 备用躲避点(左墙尽头, 饮水机对侧): 与 HIDE_SPOT 方位差≈51°(跨扇区), 远离双门
 FOLLOW_KEEP_MIN_M = 2.6             # 仿真车距保持: 近于此距离刹车暂停跟随
 FOLLOW_KEEP_RESUME_M = 3.0          # 远于此距离恢复推进(滞回)
 SCENARIO = os.environ.get("SIM_SCENARIO", "baseline")   # baseline/cross2/occlude/bench_block/hide_occupied/handoff_cross/phantom
