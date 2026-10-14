@@ -2,7 +2,7 @@
 # USB插拔会让 /dev/videoN 编号漂移 → 用 udev 规则建立固定符号链接
 # 安装: cp 99-shadowcarrier-camera.rules /etc/udev/rules.d/ && udevadm control --reload-rules && udevadm trigger --subsystem-match=video4linux
 SUBSYSTEM=="video4linux", ATTRS{idVendor}=="0c45", ATTRS{idProduct}=="6366", ATTR{index}=="0", SYMLINK+="camera0"
-# 2026-10-14 [基建] 禁用相机 USB autosuspend: 之前 power/control=auto + autosuspend=2s 导致
-#   相机周期性 suspend/resume 时 re-enumerate (dmesg: usb 7-1 disconnect/reconnect, 节点漂移),
-#   旧 VideoCapture 持有已删节点 → 取流永久阻塞 → 整条检测管线死。设 control=on 保持常供电。
-ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="0c45", ATTR{idProduct}=="6366", TEST=="power/control", ATTR{power/control}="on"
+# 2026-10-14 [基建] 禁用相机 USB autosuspend (防周期 re-enumerate 打断取流)。
+# 注: 本 ATTR 在"显式 udev add 触发"时有效, 但在 deauth/re-auth 路径抓不到时机;
+#     真正兜底是常驻服务 deploy/camera-usb-fix/ (2s 轮询把 power/control 写回 on)。
+ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="0c45", ATTR{idProduct}=="6366", TEST=="power/control", ATTR{power/control}="on"

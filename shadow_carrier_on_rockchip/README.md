@@ -52,6 +52,7 @@ arduino-cli compile --fqbn "esp32:esp32:esp32c3:CDCOnBoot=cdc" shadow_carrier_on
 | ap-hotspot | WiFi | `ShadowCarrier-RK` / `shadow123456`, NM已排除wlan0 |
 | rk-control | 80 | 网页遥控 + USB CDC→C3 |
 | video-stream | 8080 | YOLO检测 + MJPEG推流 |
+| camera-usb-fix | — | 保持相机 USB 常供电(禁用 autosuspend), 见 `deploy/camera-usb-fix/` |
 
 ### 一键健康自检（demo 前每次开机跑）
 
