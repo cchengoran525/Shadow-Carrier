@@ -146,6 +146,19 @@ BASE_ENTER=20°     BASE_EXIT=10°   ARC L100/R70      CONF_MIN=0.5
 | 数据 | 50Hz 稳定；静置噪声 **±0.06 dps**；4s 累积漂移 0.08° |
 | **符号约定** | **从上往下看逆时针（左转）= `yaw_deg` 正**（实测约90°转角读数 92.5°，标度误差 +2.8%）|
 
+### 坐标符号契约（跨线，2026-10-14 定）
+
+| 量 | 约定 | 产出方 |
+|---|---|---|
+| 世界方位角 θ | **右正**（与 world/ polar_mapper、grid.json、媒体一致） | [世界] |
+| 本线 `gaze`/`tk` 内部 pan 偏差 `pan−PAN_FORWARD` | **右正**（`PAN_SIGN=-1`） | [云台] |
+| IMU 航向 `yaw_deg` | **逆时针(左转)正** ← 注意与世界方位角**相反** | [云台] |
+| `state/decoder.py` 光轴偏移 | u>CX 为正（`MIRROR_X=False`）；**不与 `pan−PAN_FORWARD` 直接相加** | [云台] |
+
+**换算**：`theta_world = (pan − PAN_FORWARD) − decoder_offset`；IMU 航向与世界方位角差一个负号。
+**权威自检**：`world/fusion/test_bearing_convention.py`（9 断言，无硬件可跑）——任何方位角接线前先跑它。
+（历史事故：V1 `rk_control.owner_bearing` 把两套相反约定相加，差最高 41°，已删除。）
+
 ### 读取器（零依赖）
 
 - `scripts/imu_daemon.py` — 板上无 smbus 且无外网 → **直接 `/dev/i2c-3` + `I2C_RDWR` ioctl 裸读写**；上电静置校准 2s（零偏），EMA 低通 + 极慢泄漏积分

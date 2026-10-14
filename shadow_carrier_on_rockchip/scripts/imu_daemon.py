@@ -33,6 +33,7 @@ GYRO_LSB_PER_DPS = 131.0   # ±250 dps 档
 ALPHA = 0.35               # EMA 低通
 YAW_LEAK = 1.0             # 纯积分(不泄漏): 靠上电零偏校准压漂移;
                            # 长期绝对航向会漂(~0.04dps≈2.4°/min), 需定期归零/温补(未来)
+STAB_MAX_RAW = 250         # 标定稳定性门限(raw std): 超此值视为"标定时在动", 重试
 
 
 class _i2c_msg(ctypes.Structure):
@@ -88,15 +89,23 @@ class MPU:
         return struct.unpack(">h", d)[0] / 340.0 + 36.53
 
 
-def calibrate(dev, seconds=2.0, rate=100.0):
-    n, sums = 0, [0.0, 0.0, 0.0]
+def calibrate2(dev, seconds=2.0, rate=100.0):
+    """静置标定: 返回 (各轴均值, 各轴标准差raw)。标准差用于判断'标定时是否在被碰'"""
+    n = 0
+    sums = [0.0, 0.0, 0.0]
+    sq = [0.0, 0.0, 0.0]
     t_end = time.monotonic() + seconds
     while time.monotonic() < t_end:
-        gx, gy, gz = dev.gyro_raw()
-        sums[0] += gx; sums[1] += gy; sums[2] += gz
+        g = dev.gyro_raw()
+        for i in range(3):
+            sums[i] += g[i]
+            sq[i] += g[i] * g[i]
         n += 1
         time.sleep(1.0 / rate)
-    return [s / max(n, 1) for s in sums]
+    n = max(n, 1)
+    means = [sums[i] / n for i in range(3)]
+    stds = [max(0.0, sq[i] / n - means[i] ** 2) ** 0.5 for i in range(3)]
+    return means, stds
 
 
 def main():
@@ -112,11 +121,25 @@ def main():
     dev = MPU(args.bus, args.addr)
     who = dev.whoami()
     dev.begin()
-    bias = calibrate(dev, args.cal)
+    # 开机标定: 稳定性重试 (2026-10-14: 冷启动2s标定被碰/温漂污染过一次,
+    # 残差0.7dps → 航向闭环持续差速 → 车走偏)
+    bias = None
+    for attempt in range(4):
+        b, stds = calibrate2(dev, args.cal)
+        if stds[2] < STAB_MAX_RAW:
+            bias = b
+            print(f"[imu] 标定OK(第{attempt+1}次) std={stds[2]:.0f}raw")
+            break
+        print(f"[imu] 标定不稳(第{attempt+1}次) std={stds[2]:.0f}raw, 重试...")
+        time.sleep(0.5)
+    if bias is None:
+        bias = b
+        print("[imu] 警告: 标定始终不稳(车在动?), 仍采用最后一次")
     bz = bias[2]
     print(f"[imu] whoami=0x{who:02x}  bias(raw x,y,z)={bias[0]:.1f},{bias[1]:.1f},{bz:.1f}"
           f"  -> z偏置 {bz / GYRO_LSB_PER_DPS:.2f} dps")
 
+    zero_flag = os.path.join(os.path.dirname(args.out), "imu_zero.req")
     yaw = 0.0
     yaw_rate = 0.0
     t_prev = time.monotonic()
@@ -127,6 +150,25 @@ def main():
         t = time.monotonic()
         dt = t - t_prev
         t_prev = t
+        # 重零请求 (rk_control 在跟随启动/静默时写入): 静置重标 + 航向归零
+        # ⚠️ 稳定性门(统筹 10-14 22:48 审查): 车还在动时重零会采到运动零偏→更糟
+        if os.path.exists(zero_flag):
+            try:
+                b, stds = calibrate2(dev, 0.8)
+                if stds[2] < STAB_MAX_RAW:
+                    bz = b[2]
+                    yaw = 0.0
+                    print(f"[imu] 重零OK: bz={bz:.1f}raw ({bz / GYRO_LSB_PER_DPS:.2f}dps) "
+                          f"std={stds[2]:.0f}")
+                else:
+                    print(f"[imu] 重零拒绝(stds={stds[2]:.0f}raw>{STAB_MAX_RAW}, 车在动?) "
+                          f"保留旧零偏")
+            except Exception as e:
+                print(f"[imu] 重零失败: {e}")
+            try:
+                os.remove(zero_flag)
+            except OSError:
+                pass
         try:
             gx, gy, gz = dev.gyro_raw()
             r = (gz - bz) / GYRO_LSB_PER_DPS

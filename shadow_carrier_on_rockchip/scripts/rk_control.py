@@ -45,13 +45,11 @@ ESC_GIVEUP_S = 3.0           # 阻碍持续多久放弃绕行改等待(s)
 obs_state = {"t": 0.0, "blocked": False, "cm": -1}
 obs_lock = threading.Lock()
 
-# 主人世界方位角 (云台解耦后的真实偏差, 供follow转向) — [云台]线提供
-owner_bearing = {"theta": None}
-owner_bearing_lock = threading.Lock()
-
-def _get_owner_bearing():
-    with owner_bearing_lock:
-        return owner_bearing["theta"]
+# 世界方位角解耦(owner_bearing/bearing_fn)已【删除】(2026-10-14, 统筹"接线或删"裁定):
+# 该通道从未接线, 且原公式混用"物理左正"(u_to_bearing)与"物理右正"(pan-FORWARD)两套约定
+# ([世界] 22:03 审计 + world/fusion/test_bearing_convention.py 9断言)。A/B 已证 bbox 原始
+# 转向够用; 云台 demo 期冻结。若将来要接线: 用 theta=(gaze.pan-PAN_FORWARD)-u_to_bearing(u),
+# 且先跑 test_bearing_convention.py。
 
 def _get_yaw_rate():
     """读 /dev/shm/imu.json 的 yaw_rate_dps (imu.service产出)。
@@ -303,12 +301,11 @@ def _fetch_detections():
 def _gaze_loop():
     """跟随模式专用线程:
     每0.1s 检测→凝视→发PAN;
-    同时解算主人世界方位角供follow转向(云台解耦);
     避障: 超声波BLOCKED → 倒车脱离, 持续受阻停车等待(由drive线程执行)。"""
     global gaze
     import urllib.request
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "state"))
-    from gaze import GazeController, u_to_bearing
+    from gaze import GazeController
     from calib.params import TILT_LEVEL_CMD, PAN_FORWARD_CMD
     with gaze_lock:
         gaze = GazeController(PAN_FORWARD_CMD)
@@ -321,12 +318,6 @@ def _gaze_loop():
             u = _pick_owner_u(dets)
             out = gaze.feed(t, u)
             gimbal_send({"pan": out["pan_deg"]})
-            # 世界方位角 = 光学偏角 + 云台已补偿量
-            with owner_bearing_lock:
-                if u is not None:
-                    owner_bearing["theta"] = u_to_bearing(u) + (gaze.pan - PAN_FORWARD_CMD)
-                else:
-                    owner_bearing["theta"] = None
         time.sleep(0.1)
 
     # 退出跟随: 云台步进回中

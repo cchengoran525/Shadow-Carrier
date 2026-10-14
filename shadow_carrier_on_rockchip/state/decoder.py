@@ -2,8 +2,15 @@
 """state/decoder.py - 像素 → 车体系方位角解码 (M1)
 
 只做水平方位角(bearing), 不依赖 tilt/相机高度。
-约定: 方位角 0° = 当前锁定航向(标定时用的 PAN_BASE),
-      正值 = 目标在世界上的右侧(已处理镜像), 由 MIRROR_X 决定符号约定。
+输出 = 目标相对【光轴】的方位偏移, 符号随 MIRROR_X:
+    MIRROR_X=False (现值) → 偏移 = +atan((u-CX)/FX), 即 u>CX 为正。
+⚠️ 跨线契约 (2026-10-14 [世界]符号链审计后定):
+    世界方位角约定 = 【右正】(与 world/ polar_mapper / grid.json / 媒体一致)。
+    本模块不直接产出世界方位角; 若要, 换算:
+        theta_world = (pan - PAN_FORWARD) - decoder_bearing
+    权威自检: world/fusion/test_bearing_convention.py (9 断言, 无硬件可跑)。
+    ⚠️ 切勿把本偏移与 (pan-PAN_FORWARD) 直接相加 —— 两者是相反的符号约定
+    (V1 曾埋此 bug, rk_control 的 owner_bearing 已因此删除)。
 """
 import math
 
