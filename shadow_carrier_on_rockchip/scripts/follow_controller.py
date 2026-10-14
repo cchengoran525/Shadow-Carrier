@@ -21,6 +21,12 @@ TARGET_BBOX_H = 400
 MIN_BBOX_H = 150
 FWD_SPD = 100
 
+# 近距急停兜底 (2026-10-14): 恒速跟随无距离保持 → 主人/包一近会"顶着走"(撞包)
+# 框高≥STOP 即停(太近), 回落到 RESUME 再走(滞回防抖)。
+# ⚠️ 占位阈值, 需按实际机位/tilt 标定一次(框高随 tilt 变化; demos tilt=112)。
+STOP_BBOX_H = 360      # 框高≥此值 = 太近 → STOP
+RESUME_BBOX_H = 320    # 回落至此值以下 → 恢复前进
+
 H_CHANGE_LIMIT = 0.3
 
 CYCLE_S = 0.3         # 控制周期 300ms
@@ -73,6 +79,7 @@ class FollowController:
         self.running = False
         self.last_turn_dir = None
         self.backing = False
+        self.too_close = False   # 近距急停兜底状态(见 STOP_BBOX_H)
         self.profile = None      # 主人模板 (OwnerProfile)
         self.last_score = 0.0
         self.tracker = None      # 单目标α-β跟踪器(认主成功后创建)
@@ -245,6 +252,15 @@ class FollowController:
             if th is not None:
                 offset = 508.0 * math.tan(math.radians(th))
         abs_off = abs(offset)
+
+        # === 近距急停兜底: 框太大=太近 → 停(不顶人/包); 滞回恢复 ===
+        if self.sh >= STOP_BBOX_H:
+            self.too_close = True
+        elif self.sh <= RESUME_BBOX_H:
+            self.too_close = False
+        if self.too_close:
+            self.send_cmd("STOP")
+            return "STOP", 0, self._info(offset)
 
         # === 差速映射: 偏移→左右轮速 (v3原版, 距离由人自行掌握) ===
         if abs_off <= DIR_DEADBAND:
