@@ -22,6 +22,7 @@ bad()  { printf "  \033[31m[FAIL]\033[0m %s\n" "$*"; fails=$((fails+1)); }
 warn() { printf "  \033[33m[WARN]\033[0m %s\n" "$*"; warns=$((warns+1)); }
 
 snapshot() {
+  fails=0; warns=0
   local ts; ts=$(date '+%F %T')
   echo "== ShadowCarrier health @ $ts =="
   # 一次性取 API/dnsmasq/imu
@@ -97,10 +98,16 @@ EOF
   else
     bad "dnsmasq 未运行"
   fi
-  ss -lunp 2>/dev/null | grep -q '192.168.4.1:53' && ok "dnsmasq 绑定 192.168.4.1:53" || warn "dnsmasq 未绑 192.168.4.1:53"
+  ss -lun 2>/dev/null | grep -qE ':53([[:space:]]|$)' && ok "dnsmasq 监听 UDP:53" || bad "未见 UDP:53 监听 (dnsmasq 未起)"
   pgrep -x hostapd >/dev/null 2>&1 && ok "hostapd 运行 (AP ShadowCarrier-RK)" || bad "hostapd 未运行 (热点挂)"
   ip -4 addr show wlan0 2>/dev/null | grep -q '192.168.4.1' && ok "wlan0=192.168.4.1" || bad "wlan0 无 192.168.4.1"
-  grep -q 'b6:ac:ee:7e:b2:fd' /var/lib/misc/dnsmasq.leases 2>/dev/null && ok "在场信号: 手机 lease 在位 (b6:ac:ee:7e:b2:fd)" || warn "未见手机 lease (手机未连或已过期)"
+  if iw dev wlan0 station dump 2>/dev/null | grep -q 'b6:ac:ee:7e:b2:fd'; then
+    ok "在场信号: 手机已关联 AP (b6:ac:ee:7e:b2:fd)"
+  elif grep -q 'b6:ac:ee:7e:b2:fd' /var/lib/misc/dnsmasq.leases 2>/dev/null; then
+    warn "手机未关联, 但 lease 在位 (b6:ac:ee:7e:b2:fd) — 手机可能休眠/不在场"
+  else
+    warn "未见手机关联/lease (b6:ac:ee:7e:b2:fd)"
+  fi
 
   echo "-- IMU / C3 --"
   if [ -n "$imu" ]; then
