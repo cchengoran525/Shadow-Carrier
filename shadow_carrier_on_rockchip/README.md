@@ -53,6 +53,25 @@ arduino-cli compile --fqbn "esp32:esp32:esp32c3:CDCOnBoot=cdc" shadow_carrier_on
 | rk-control | 80 | 网页遥控 + USB CDC→C3 |
 | video-stream | 8080 | YOLO检测 + MJPEG推流 |
 
+### 一键健康自检（demo 前每次开机跑）
+
+`scripts/health_check.sh` 汇总关键健康指标：相机节点/USB常供电 · `fps`/`age_ms`/`restarts`/`cam_reopens` · `yolo_daemon` 存活 · dnsmasq CPU/绑定 · 热点(hostapd/wlan0/手机lease) · IMU · C3 串口 · 系统服务。
+
+```bash
+bash scripts/health_check.sh                 # 单次快照, 全绿 exit 0
+bash scripts/health_check.sh --watch 600 20  # 长跑 10min(每 20s 采样), demo 前排障用
+```
+
+判定红线：`age_ms < 200`、dnsmasq CPU 个位数%、`restarts` 不增长、`/dev/camera0` 不悬空。任一 FAIL 先查 `dmesg | grep 0c45`（相机 USB）与 `/dev/shm/yolo_daemon.log`（daemon 诊断）。
+
+### 相机节点固定 + 禁用 USB autosuspend（防取流被周期性打断）
+
+```bash
+sudo cp configs/99-shadowcarrier-camera.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules
+sudo udevadm trigger --subsystem-match=usb --subsystem-match=video4linux
+```
+
 ## 当前已知小问题与边界
 
 以下内容是当前版本的已知限制，记录用于排查和后续收敛，不代表已经修复：
@@ -66,6 +85,8 @@ arduino-cli compile --fqbn "esp32:esp32:esp32c3:CDCOnBoot=cdc" shadow_carrier_on
 7. **跟随控制目前主要使用横向位置。** `TARGET_BBOX_H`、`DIST_DEADBAND`、`MIN_BBOX_H`、`FWD_SPD` 等参数在当前控制循环中没有形成完整的距离控制闭环；控制周期和注释中的研究参数也仍在迭代。**10-03 仿真/真机观察验证：恒速跟随在主人静止时会持续顶上去（无距离保持），主人消失后仍满速前进**——需加"bbox 宽度/面积超阈值→STOP"兜底，或引入 MPU 航向/里程闭环。
 8. **超声波保护有强制解除路径。** 无回波累计或障碍锁定超过最大时长后，传感器状态会被强制清除，目的是防止永久锁死，但这不等于确认前方安全。测试时仍应保留人工 STOP 入口，并让车轮离地。
 9. **部署地址和引脚说明仍有局部不一致。** RK 控制页面里存在固定视频地址，云台脚本的注释与实际 GPIO4_A6/A7 配置也需要以当前 RK 板卡接线为准。
+10. **USB 相机 autosuspend 会周期性打断取流（10-14 已修）。** 相机（Sonix `0c45:6366`）默认 `power/control=auto`（autosuspend 2s），suspend/resume 时会 **re-enumerate**（`dmesg`: `usb 7-1 disconnect/reconnect`，节点 `video10/11/12` 漂移，实测约每 5 分钟一次）。旧版 `video_stream_v7.py` 的 `VideoCapture` 持有已删除的 `/dev/videoN` → `cap.read()` 永久阻塞 → producer 停发帧 → daemon 静默 → watchdog 空转重启（`restarts` 暴涨 + `<defunct>` 僵尸）→ 检测永久失效。**修复**：`configs/99-shadowcarrier-camera.rules` 增加 `ATTR{power/control}="on"` 禁用 autosuspend；`video_stream_v7.py` v7.3 增加 `camera_watchdog`（无新帧 >2.5s 自动 release+reopen，兼容节点漂移）、daemon 子进程回收（消僵尸）、daemon stderr 落盘 `/dev/shm/yolo_daemon.log`、心跳超时仅在输入流动时重启。故障复发时先查 `dmesg | grep 0c45` 与线材/供电。
+11. **dnsmasq 曾 99.7% CPU（DNS 自环，10-14 已修）。** `systemd-resolved` 已 disabled，但 `/etc/resolv.conf` 仍为 `nameserver 127.0.0.53`；dnsmasq 通配绑定 `*:53` 又以 `127.0.0.53` 作上游 → 查询转发给自己形成死循环。**修复**：`/etc/dnsmasq.conf`（见 `configs/dnsmasq.conf`）加 `no-resolv` + 显式上游（`223.5.5.5`/`114.114.114.114`）+ `bind-interfaces`/`listen-address=192.168.4.1`，只绑 AP 地址，双重杜绝自环。热点/DHCP/手机在场信号不受影响。
 
 ## 已知问题
 
