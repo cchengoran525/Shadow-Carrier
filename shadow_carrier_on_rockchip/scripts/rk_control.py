@@ -38,7 +38,7 @@ BASE_ENTER = 20.0            # 云台偏超20° → 底盘弧线转向
 BASE_EXIT = 10.0             # 回到10°内 → 停止转向(滞回)
 BASE_HOLD_S = 0.4            # 持续超阈确认
 ARC_FAST = 100               # 弧线外侧轮速 (保持前进!)
-ARC_SLOW = 70                # 弧线内侧轮速
+ARC_SLOW = 90                # 弧线内侧轮速 (70→90, 跟随MIN_SPD上调)
 ESC_BACK_S = 0.8             # 避障倒车时长(s)
 ESC_GIVEUP_S = 3.0           # 阻碍持续多久放弃绕行改等待(s)
 
@@ -66,6 +66,16 @@ def _get_yaw_rate():
         return float(d["yaw_rate_dps"])
     except Exception:
         return None
+
+def _imu_zero():
+    """请求 IMU 重零: 写标志文件, imu_daemon 消费后自删并重置航向。
+    应在【静止】时调用 (跟随启动/停稳后)"""
+    try:
+        open("/dev/shm/imu_zero.req", "w").close()
+        print("[imu] 已请求重零")
+        return True
+    except Exception:
+        return False
 
 # ====== 转身到角度 (IMU闭环, 供 [HRI] 动作层) ======
 turn_state = {"active": False, "target": None, "yaw": None, "err": None,
@@ -252,9 +262,14 @@ def _follow_loop():
             print("[follow] 认主失败, 跟随未启动")
             _stop_follow()
             return
+        last_state = None
         while fc.running:
-            fc.tick()
-            time.sleep(0.4)
+            _tag, _val, _info = fc.tick()          # 10Hz: 提速反应(原0.4s)
+            _st = _info.get("state") if isinstance(_info, dict) else None
+            if _st != last_state:                  # 黑匣子: 只记状态跃迁
+                print(f"[follow] state {last_state} -> {_st} {_info}")
+                last_state = _st
+            time.sleep(0.1)
     except Exception as e:
         print(f"[follow] import/run error: {e}")
         import traceback; traceback.print_exc()
@@ -409,6 +424,7 @@ def _start_follow():
             fc.resume()
             return
         with mode_lock: mode = "follow"
+        _imu_zero()          # 跟随启动时车通常静止 → 重零(治冷启动标定残差)
         _start_gaze()
         threading.Thread(target=_follow_loop, daemon=True).start()
     except Exception as e:
@@ -475,6 +491,9 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 self.send_response(400); self._text('BAD')
                 return
+        if self.path == '/imu/zero':
+            self._json({"ok": _imu_zero()})
+            return
         r = {'/forward':'MOVE F 180','/back':'MOVE B 180','/left':'MOVE L 150','/right':'MOVE R 150','/stop':'STOP'}
         if self.path in r:
             self._text("OK" if uart_send(r[self.path]) else "FAIL")

@@ -6,15 +6,17 @@ import os, time, json, math, urllib.request
 FW, FH = 640, 480
 FCX = FW / 2
 
-ALPHA = 0.3           # EMA 平滑
+ALPHA = 0.18          # EMA基准系数(10Hz环率 τ≈0.5s); 实际按dt归一, 改环率无需重调
+ALPHA_REF_DT = 0.1    # dt归一基准周期
 
 DIR_DEADBAND = 50     # 死区: ±50px内直走
 # 航向闭环 (IMU, 2026-10-04): 仅直行段生效, 压住开环走歪
 YAW_K = 2.0           # dps → 轮速差 增益
 YAW_CORR_MAX = 12     # 单轮最大修正量
+YAW_DEAD = 1.5        # 死区(dps): 小于此值视为零偏噪声, 不修正 (治标定残差导致的持续偏航)
 
-BASE_SPD = 100        # 基准前进速度
-MIN_SPD = 60          # 最小轮速 (一侧降到这个速度时已是急转)
+BASE_SPD = 130        # 基准前进速度 (100→130, 稳了再150)
+MIN_SPD = 80          # 最小轮速 (60→80, 离开固件PWM<50死区)
 MAX_OFFSET = 200       # 偏移饱和点
 
 TARGET_BBOX_H = 400
@@ -29,12 +31,14 @@ RESUME_BBOX_H = 320    # 回落至此值以下 → 恢复前进
 
 H_CHANGE_LIMIT = 0.3
 
-CYCLE_S = 0.3         # 控制周期 300ms
-LOST_LIMIT = 6
+CYCLE_S = 0.1         # 名义控制周期(仅实机路径参考; 判定逻辑按实测dt计时, 不依赖环率)
+# 以下阈值一律用"秒": 实机10Hz / 仿真0.3s / 任意环率下行为一致
+LOST_TIMEOUT_S = 2.4      # 连续丢失多久 → wait_owner / lost_stop
+SEARCH_BACK_S = 1.2       # 丢人后小幅后退搜索时长
+LOW_STREAK_S = 3.2        # 连续低分多久 → 清跟踪器(逃逸错锁)
 BACK_SPD = 85
 BACK_MS = 0.25
 # 丢人搜索: 找不到人时先小幅后退找人(配合云台搜索), 而不是只靠云台摇摆
-SEARCH_BACK_TICKS = 3     # 后退拍数(每拍≈CYCLE_S) → 总后退≈0.9s, 小幅
 SEARCH_BACK_SPD = 70      # 后退速度(比 BACK_SPD 慢, 稳)
 
 DET_API = "http://127.0.0.1:8080/api/detections"
@@ -65,7 +69,7 @@ def _publish_owner(box):
 
 class FollowController:
     def __init__(self, send_cmd_fn, bearing_fn=None, person_provider=None,
-                 yaw_rate_fn=None):
+                 yaw_rate_fn=None, dist_fn=None):
         # bearing_fn: [云台]线提供的"主人世界方位角(度)"只读回调。
         # 非None时转向误差用它(云台解耦), 否则退回原始bbox像素偏差。
         # person_provider: 仿真检测输入; 实机默认仍走 owner_id 认主链路。
@@ -73,6 +77,11 @@ class FollowController:
         self.bearing_fn = bearing_fn
         self.person_provider = person_provider
         self.yaw_rate_fn = yaw_rate_fn
+        # dist_fn: 可选"人到车距离(米)"回调([世界]提供后接线); None=恒速
+        self.dist_fn = dist_fn
+        self._last_t = None      # EMA/计时共用: 实测dt
+        self._lost_s = 0.0       # 连续丢失秒数
+        self._low_s = 0.0        # 连续低分秒数
         self.send_cmd = send_cmd_fn
         self.scx = FCX
         self.scy = FH / 2
@@ -156,7 +165,7 @@ class FollowController:
                 if img is None:
                     return None
                 # 长时间丢失后重捕获: 旧预测已失效, 清掉再关联
-                if self.lost > LOST_LIMIT and self.tracker is not None:
+                if self._lost_s > LOST_TIMEOUT_S and self.tracker is not None:
                     self.tracker.reset()
                 box, score = owner_id.select_target(
                     self.profile, img, dets, tracker=self.tracker)
@@ -165,9 +174,10 @@ class FollowController:
                     self.low_streak += 1
                     if self.tracker is not None:
                         self.tracker.coast()
-                        if self.low_streak >= 8:   # ~3s全低分: 解除错锁偏向
+                        if self.low_streak >= 1 and self._low_s >= LOW_STREAK_S:
                             self.tracker.reset()
                             self.low_streak = 0
+                            self._low_s = 0.0
                             print("[follow] re-acquire: tracker reset")
                     # 机主原则(2026-08-28 定稿): 模板失配 = 画面里没有可信的主人
                     # → 返回None走丢失流程(wait_owner/lost_stop), 绝不转投路人
@@ -180,12 +190,15 @@ class FollowController:
                 self.tracker.update(cx, cy)
                 if score < owner_id.SCORE_MIN - 0.05:
                     self.low_streak += 1
-                    if self.low_streak >= 8:
+                    self._low_s += _dt
+                    if self._low_s >= LOW_STREAK_S:
                         self.tracker.reset()
                         self.low_streak = 0
+                        self._low_s = 0.0
                         print("[follow] re-acquire: low-score streak")
                 else:
                     self.low_streak = 0
+                    self._low_s = 0.0
                 return {"cx": cx, "h": box["y2"] - box["y1"], "cy": cy}
             except Exception as e:
                 print(f"[follow] owner select error: {e}")
@@ -202,6 +215,12 @@ class FollowController:
         if not self.running: return None, None, {"state": "stopped"}
         if self.paused: return None, None, {"state": "paused"}
 
+        # 实测 dt (与环率解耦: 实机10Hz / 仿真0.3s 行为一致)
+        _now = time.monotonic()
+        _dt = (_now - self._last_t) if self._last_t else 0.0
+        self._last_t = _now
+        _dt = max(0.0, min(0.5, _dt))
+
         # 回退中
         if self.backing:
             self.send_cmd("STOP")
@@ -213,13 +232,16 @@ class FollowController:
 
         if person is None:
             self.lost += 1
+            self._lost_s += _dt
             # 丢人: 先小幅后退找人(配合云台搜索), 不是只靠云台摇摆
-            # 第 1 拍先确认(防单帧闪烁触发), 第 2..N 拍后退
-            if 2 <= self.lost <= SEARCH_BACK_TICKS + 1:
+            # 首拍确认(防单帧闪烁), 随后 SEARCH_BACK_S 秒内小幅后退
+            if self.lost == 1:
+                return None, None, {"state": "lost", "count": self.lost}
+            if self._lost_s <= SEARCH_BACK_S:
                 self.send_cmd(f"MOVE B {SEARCH_BACK_SPD}")
                 return "B", SEARCH_BACK_SPD, {"state": "search_back",
                                               "lost": self.lost}
-            if self.lost >= LOST_LIMIT:
+            if self._lost_s >= LOST_TIMEOUT_S:
                 # 主人模板在 + 手环或热点任一在场 → 原地等待(不乱跑)
                 if self.profile is not None:
                     try:
@@ -236,17 +258,19 @@ class FollowController:
             return None, None, {"state": "lost", "count": self.lost}
 
         self.lost = 0
+        self._lost_s = 0.0
         raw_cx, raw_h = person["cx"], person["h"]
 
-        # EMA 平滑
+        # EMA 平滑 (dt归一: 环率变化不改变等效平滑时窗)
+        _a = 1.0 - (1.0 - ALPHA) ** (max(0.02, _dt) / ALPHA_REF_DT)
         if self.sh == 0:
             self.scx, self.scy, self.sh = raw_cx, person["cy"], raw_h
         else:
             h_change = abs(raw_h - self.sh) / self.sh if self.sh > 0 else 0
             if h_change < H_CHANGE_LIMIT:
-                self.scx = ALPHA * raw_cx + (1 - ALPHA) * self.scx
-                self.scy = ALPHA * person["cy"] + (1 - ALPHA) * self.scy
-                self.sh  = ALPHA * raw_h + (1 - ALPHA) * self.sh
+                self.scx = _a * raw_cx + (1 - _a) * self.scx
+                self.scy = _a * person["cy"] + (1 - _a) * self.scy
+                self.sh  = _a * raw_h + (1 - _a) * self.sh
 
         offset = self.scx - FCX
         # 云台解耦: 世界方位角→等效像素偏差 (FX≈508 来自 state/calib/params.py)
@@ -266,28 +290,39 @@ class FollowController:
             self.send_cmd("STOP")
             return "STOP", 0, self._info(offset)
 
-        # === 差速映射: 偏移→左右轮速 (v3原版, 距离由人自行掌握) ===
+        # === 差速映射: 偏移→左右轮速 (v3原版 + 可选距离匹配) ===
+        # 距离匹配(进阶): 仅当 dist_fn 提供新鲜距离时微调基准速度; 默认恒速
+        fwd = BASE_SPD
+        if self.dist_fn is not None:
+            try:
+                _d = self.dist_fn()
+            except Exception:
+                _d = None
+            if _d is not None and 0.4 < _d < 8.0:
+                # 目标间距1.2m; 人远→快、人近→慢, 保守±30
+                fwd = int(max(MIN_SPD, min(160, BASE_SPD + (_d - 1.2) * 30)))
         if abs_off <= DIR_DEADBAND:
             # 直走 + 航向闭环(IMU): 压住开环走歪
-            left = right = BASE_SPD
+            left = right = fwd
             if self.yaw_rate_fn is not None:
                 yr = self.yaw_rate_fn()
-                if yr is not None:
+                if yr is not None and abs(yr) >= YAW_DEAD:
                     # yr>0 = 逆时针(左漂) → 需右修: 左轮快/右轮慢
                     corr = max(-YAW_CORR_MAX, min(YAW_CORR_MAX, YAW_K * yr))
-                    left = int(max(20, min(130, BASE_SPD + corr)))
-                    right = int(max(20, min(130, BASE_SPD - corr)))
+                    hi = fwd + YAW_CORR_MAX
+                    left = int(max(20, min(hi, fwd + corr)))
+                    right = int(max(20, min(hi, fwd - corr)))
             self.last_turn_dir = None
         else:
             # 弧线: 一侧降速
             ratio = min(abs_off / MAX_OFFSET, 1.0)
-            slow = int(BASE_SPD - ratio * (BASE_SPD - MIN_SPD))
+            slow = int(fwd - ratio * (fwd - MIN_SPD))
             if offset < 0:
                 # 人在左→左轮慢, 右轮快=左弧
-                left, right = slow, BASE_SPD
+                left, right = slow, fwd
             else:
                 # 人在右→右轮慢, 左轮快=右弧
-                left, right = BASE_SPD, slow
+                left, right = fwd, slow
             self.last_turn_dir = "L" if offset < 0 else "R"
 
         self._diff(left, right)
