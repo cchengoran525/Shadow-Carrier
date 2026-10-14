@@ -23,11 +23,12 @@ TARGET_BBOX_H = 400
 MIN_BBOX_H = 150
 FWD_SPD = 100
 
-# 近距急停兜底 (2026-10-14): 恒速跟随无距离保持 → 主人/包一近会"顶着走"(撞包)
-# 框高≥STOP 即停(太近), 回落到 RESUME 再走(滞回防抖)。
-# ⚠️ 占位阈值, 需按实际机位/tilt 标定一次(框高随 tilt 变化; demos tilt=112)。
-STOP_BBOX_H = 360      # 框高≥此值 = 太近 → STOP
-RESUME_BBOX_H = 320    # 回落至此值以下 → 恢复前进
+# 近距"距离保持" (2026-10-14 v2): 首选真实距离(dist_fn); 未就绪时用框高兜底。
+# ⚠️ tilt=112 下框高随距离"压缩", 阈值需实测微调(高→太近才停, 低→正常距离误停)。
+NEAR_STOP_M = 0.7      # dist_fn 给出的人-车距离 < 此值 → STOP(真实距离路径)
+SLOW_BBOX_H = 340      # 框高≥此值 → 开始减速(无 dist_fn 时的兜底)
+STOP_BBOX_H = 400      # 框高≥此值 → 硬停(无 dist_fn 时的兜底)
+RESUME_BBOX_H = 370    # 框高回落至此值以下 → 恢复
 
 H_CHANGE_LIMIT = 0.3
 
@@ -91,7 +92,7 @@ class FollowController:
         self.running = False
         self.last_turn_dir = None
         self.backing = False
-        self.too_close = False   # 近距急停兜底状态(见 STOP_BBOX_H)
+        self.too_close = False   # 近距"距离保持"状态(框高兜底)
         self.profile = None      # 主人模板 (OwnerProfile)
         self.last_score = 0.0
         self.tracker = None      # 单目标α-β跟踪器(认主成功后创建)
@@ -234,8 +235,8 @@ class FollowController:
             self.lost += 1
             self._lost_s += _dt
             # 丢人: 先小幅后退找人(配合云台搜索), 不是只靠云台摇摆
-            # 首拍确认(防单帧闪烁), 随后 SEARCH_BACK_S 秒内小幅后退
-            if self.lost == 1:
+            # 首拍 + 0.4s 确认(防近距离"半身出画"闪烁就后退 → 治"前后前后")
+            if self.lost == 1 or self._lost_s < 0.4:
                 return None, None, {"state": "lost", "count": self.lost}
             if self._lost_s <= SEARCH_BACK_S:
                 self.send_cmd(f"MOVE B {SEARCH_BACK_SPD}")
@@ -281,26 +282,35 @@ class FollowController:
                 offset = 508.0 * math.tan(math.radians(th))
         abs_off = abs(offset)
 
-        # === 近距急停兜底: 框太大=太近 → 停(不顶人/包); 滞回恢复 ===
-        if self.sh >= STOP_BBOX_H:
-            self.too_close = True
-        elif self.sh <= RESUME_BBOX_H:
-            self.too_close = False
-        if self.too_close:
-            self.send_cmd("STOP")
-            return "STOP", 0, self._info(offset)
-
-        # === 差速映射: 偏移→左右轮速 (v3原版 + 可选距离匹配) ===
-        # 距离匹配(进阶): 仅当 dist_fn 提供新鲜距离时微调基准速度; 默认恒速
-        fwd = BASE_SPD
+        # === 近距"距离保持" (降速 + 太近停) ===
+        # 首选真实距离(dist_fn); 未就绪时用框高兜底(⚠️ tilt=112 下阈值需实测)
+        _d = None
         if self.dist_fn is not None:
             try:
                 _d = self.dist_fn()
             except Exception:
                 _d = None
-            if _d is not None and 0.4 < _d < 8.0:
-                # 目标间距1.2m; 人远→快、人近→慢, 保守±30
-                fwd = int(max(MIN_SPD, min(160, BASE_SPD + (_d - 1.2) * 30)))
+        if _d is not None and _d < NEAR_STOP_M:            # 真实距离太近 → 停
+            self.send_cmd("STOP")
+            return "STOP", 0, self._info(offset)
+        if _d is None:                                      # 无距离源 → 框高兜底
+            if self.sh >= STOP_BBOX_H:
+                self.too_close = True
+            elif self.sh <= RESUME_BBOX_H:
+                self.too_close = False
+            if self.too_close:
+                self.send_cmd("STOP")
+                return "STOP", 0, self._info(offset)
+
+        # === 差速映射: 偏移→左右轮速 (v3原版 + 距离匹配/框高减速) ===
+        fwd = BASE_SPD
+        if _d is not None and 0.4 < _d < 8.0:
+            # 目标间距1.2m; 人远→快、人近→慢, 保守±30
+            fwd = int(max(MIN_SPD, min(160, BASE_SPD + (_d - 1.2) * 30)))
+        elif _d is None and self.sh > SLOW_BBOX_H:
+            # 框高减速兜底: 越近越慢(到 STOP_BBOX_H 已硬停)
+            frac = min(1.0, (self.sh - SLOW_BBOX_H) / max(1.0, STOP_BBOX_H - SLOW_BBOX_H))
+            fwd = int(max(MIN_SPD, BASE_SPD - frac * (BASE_SPD - MIN_SPD) * 0.6))
         if abs_off <= DIR_DEADBAND:
             # 直走 + 航向闭环(IMU): 压住开环走歪
             left = right = fwd
