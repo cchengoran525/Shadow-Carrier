@@ -29,7 +29,9 @@ CONF_MIN = 0.5               # 与[认主]对齐
 _last_pose = {"pan": PAN_FORWARD_CMD, "tilt": TILT_LEVEL_CMD}
 
 # A/B 测试总开关: False = 云台冻结(回到无云台的原版跟随行为)
-GAZE_ENABLED = True
+# 2026-10-14 统筹裁定: demo 期 False —— 云台固定, 避免 _gaze_drive_loop 与 follow
+# 双控制器抢底盘(往右拐/越拐越偏), 且 bearing_fn 未接线(解耦是死代码)。
+GAZE_ENABLED = False
 
 # 凝视绞合常数 (级联弧线式, arxiv 1909.06087 同款架构)
 BASE_ENTER = 20.0            # 云台偏超20° → 底盘弧线转向

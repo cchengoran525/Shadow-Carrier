@@ -214,7 +214,8 @@ class FollowController:
         if person is None:
             self.lost += 1
             # 丢人: 先小幅后退找人(配合云台搜索), 不是只靠云台摇摆
-            if self.lost <= SEARCH_BACK_TICKS:
+            # 第 1 拍先确认(防单帧闪烁触发), 第 2..N 拍后退
+            if 2 <= self.lost <= SEARCH_BACK_TICKS + 1:
                 self.send_cmd(f"MOVE B {SEARCH_BACK_SPD}")
                 return "B", SEARCH_BACK_SPD, {"state": "search_back",
                                               "lost": self.lost}
