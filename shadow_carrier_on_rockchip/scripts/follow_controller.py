@@ -33,6 +33,9 @@ CYCLE_S = 0.3         # 控制周期 300ms
 LOST_LIMIT = 6
 BACK_SPD = 85
 BACK_MS = 0.25
+# 丢人搜索: 找不到人时先小幅后退找人(配合云台搜索), 而不是只靠云台摇摆
+SEARCH_BACK_TICKS = 3     # 后退拍数(每拍≈CYCLE_S) → 总后退≈0.9s, 小幅
+SEARCH_BACK_SPD = 70      # 后退速度(比 BACK_SPD 慢, 稳)
 
 DET_API = "http://127.0.0.1:8080/api/detections"
 # ===== 跨进程主人框发布 (HRI A1.2 依赖, 2026-10-04) =====
@@ -210,6 +213,11 @@ class FollowController:
 
         if person is None:
             self.lost += 1
+            # 丢人: 先小幅后退找人(配合云台搜索), 不是只靠云台摇摆
+            if self.lost <= SEARCH_BACK_TICKS:
+                self.send_cmd(f"MOVE B {SEARCH_BACK_SPD}")
+                return "B", SEARCH_BACK_SPD, {"state": "search_back",
+                                              "lost": self.lost}
             if self.lost >= LOST_LIMIT:
                 # 主人模板在 + 手环或热点任一在场 → 原地等待(不乱跑)
                 if self.profile is not None:
@@ -224,11 +232,6 @@ class FollowController:
                 self.send_cmd("STOP")
                 self.last_turn_dir = None
                 return "STOP", 0, {"state": "lost_stop"}
-            if self.last_turn_dir and self.lost == 1:
-                self.send_cmd(f"MOVE B {BACK_SPD}")
-                self.backing = True
-                self.last_turn_dir = None
-                return "B", BACK_SPD, {"state": "backing"}
             return None, None, {"state": "lost", "count": self.lost}
 
         self.lost = 0
