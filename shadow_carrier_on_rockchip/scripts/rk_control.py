@@ -7,6 +7,17 @@ UART = "/dev/ttyACM0"
 BAUD = 115200
 VIDEO_PORT = 8080
 CONTROL_PORT = 80
+HRI_STATE = "/dev/shm/hri_state.json"   # HRI 发布: 停驻域判断(WAIT/HIDE) → tick(turn_only)
+
+
+def _hri_parked(max_age=0.5):
+    """HRI 是否处于停驻域(车已停好, 只应做有界转头接人)。文件缺失/过期 → False(走完整跟随)。"""
+    try:
+        with open(HRI_STATE) as f:
+            o = json.load(f)
+        return (time.time() - o.get("ts", 0)) < max_age and bool(o.get("parked"))
+    except (OSError, ValueError):
+        return False
 
 # 云台行程 (与 C3 固件一致, Pan 实测为 180° 舵机)
 PAN_RANGE = 180.0
@@ -262,7 +273,15 @@ def _follow_loop():
             return
         last_state = None
         while fc.running:
-            _tag, _val, _info = fc.tick()          # 10Hz: 提速反应(原0.4s)
+            try:
+                if _hri_parked():
+                    # 停驻域(HIDE/WAIT, 车已停好): 只允许"人从侧方过来时转头接人"
+                    # 云台冻结后相机 ±32° 是硬边界; turn_only 不做平移/不扫 180°
+                    _tag, _val, _info = fc.tick(turn_only=True)
+                else:
+                    _tag, _val, _info = fc.tick()          # 10Hz: 提速反应(原0.4s)
+            except TypeError:
+                _tag, _val, _info = fc.tick()              # follow 版本无 turn_only → 零行为变化
             _st = _info.get("state") if isinstance(_info, dict) else None
             if _st != last_state:                  # 黑匣子: 只记状态跃迁
                 print(f"[follow] state {last_state} -> {_st} {_info}")

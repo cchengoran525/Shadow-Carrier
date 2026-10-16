@@ -40,7 +40,8 @@ DEFAULTS = {
                 "hold_any_class": False, "hold_any_min_conf": 0.5,
                 "hold_any_top_frac": 0.45, "hold_any_max_area_ratio": 0.3,
                 "hold_named_max_area_ratio": 0.6},
-    "paths": {"grid_json": "~/world_lab/fusion/grid.json"},
+    "paths": {"grid_json": "~/world_lab/fusion/grid.json",
+              "hri_state_json": "/dev/shm/hri_state.json"},
     "pose": {"enabled": False, "json": "/dev/shm/pose_out.json",
              "max_age_s": 1.5, "iou_min": 0.1},
     "owner": {"source": "none", "file": "/dev/shm/owner.json",
@@ -140,6 +141,7 @@ class HRIStateMachine:
         self.fast_run = 0
         self.last_owner_cx = None
         self.last_owner_box = None
+        self._last_state_pub = 0.0
 
     # ---- 内部工具 ----
     def _set_state(self, new, reason=""):
@@ -229,6 +231,23 @@ class HRIStateMachine:
         self.last_owner_cx = (d["bbox"][0] + d["bbox"][2]) / 2
         self.last_owner_box = list(d["bbox"])
 
+    def _publish_state(self, now, act):
+        """发布 HRI 状态供消费方门控(如 rk_control 决定 tick vs tick(turn_only))。
+        限频 0.1s; 原子替换; 路径不可写(如 Windows 无 /dev/shm)时静默忽略。"""
+        path = (self.p.get("paths") or {}).get("hri_state_json")
+        if not path or now - self._last_state_pub < 0.1:
+            return
+        self._last_state_pub = now
+        try:
+            tmp = os.path.expanduser(path) + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"ts": round(now, 3), "state": self.state,
+                           "action": act,
+                           "parked": self.state in ("WAIT", "HIDE")}, f)
+            os.replace(tmp, os.path.expanduser(path))
+        except OSError:
+            pass
+
     def _pose_offering(self, owner_box, now):
         """[世界] pose_server v2 的 offering 作为 OR 辅助通道(默认关)."""
         cfg = self.p.get("pose", {})
@@ -294,10 +313,10 @@ class HRIStateMachine:
         act = "NONE"
         if owner is None:
             lost = time.time() - self.owner_last_seen
-            if self.state == "HIDE" and lost > p["timing"]["owner_lost_abort_s"]:
-                self._set_state("FOLLOW", "主人消失, 扫掠中断")
-            elif (self.state in ("RECEIVE", "YIELD")
-                  and lost > p["timing"]["owner_lost_abort_s"]):
+            # HIDE 中主人出画不中断(S-W-R: 分离→在可找到处等待)。
+            # 有限 FOV(±32°)下这几乎是必然; 旧逻辑 HIDE->FOLLOW 会造成状态抖动并错过 RECEIVE。
+            if (self.state in ("RECEIVE", "YIELD")
+                    and lost > p["timing"]["owner_lost_abort_s"]):
                 self.receive_cooldown_until = now + p["timing"]["receive_cooldown_s"]
                 self._set_state("WAIT", "主人离开")
             return {"state": self.state, "action": "NONE"}
@@ -477,6 +496,7 @@ class HRIStateMachine:
                 else:
                     act = "APPROACH"
         self.send_cmd(act)
+        self._publish_state(now, act)
         return {"state": self.state, "action": act, "disp": round(disp, 1),
                 "dcx": round(dcx, 1), "rate": round(rate, 3),
                 "dist_m": round(dist_sm, 2) if dist_sm else None,

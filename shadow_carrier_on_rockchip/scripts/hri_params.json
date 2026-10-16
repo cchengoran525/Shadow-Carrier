@@ -11,11 +11,12 @@
   "metric": {
     "static_disp_m": 0.08,
     "static_v_mps": 0.15,
-    "wake_disp_m": 0.40,
+    "wake_disp_m": 0.4,
     "near_dist_m": 1.2,
     "bend_near_dist_m": 2.5,
     "receive_exit_s": 0.8,
-    "v_ema": 0.4, "v_max_mps": 2.5,
+    "v_ema": 0.4,
+    "v_max_mps": 2.5,
     "approach_fast_mps": 0.8,
     "approach_slow_mps": 0.06,
     "recede_mps": 0.05
@@ -29,7 +30,7 @@
   },
   "ratios": {
     "bend": 0.25,
-    "bend_clear": 0.10,
+    "bend_clear": 0.1,
     "base_up_alpha": 0.15,
     "base_down_alpha": 0.005
   },
@@ -45,9 +46,20 @@
   },
   "classes": {
     "owner_conf_min": 0.5,
-    "hold_classes": ["bottle", "cup", "wine glass", "banana", "apple", "orange", "handbag", "backpack", "teddy bear", "suitcase"],
+    "hold_classes": [
+      "bottle",
+      "cup",
+      "wine glass",
+      "banana",
+      "apple",
+      "orange",
+      "handbag",
+      "backpack",
+      "teddy bear",
+      "suitcase"
+    ],
     "hold_iou_min": 0.05,
-    "hold_conf_min": 0.30,
+    "hold_conf_min": 0.3,
     "held_latch_s": 1.5,
     "held_min_hits": 1,
     "hold_any_class": false,
@@ -57,7 +69,8 @@
     "hold_named_max_area_ratio": 0.6
   },
   "paths": {
-    "grid_json": "~/world_lab/fusion/grid.json"
+    "grid_json": "~/world_lab/fusion/grid.json",
+    "hri_state_json": "/dev/shm/hri_state.json"
   },
   "pose": {
     "enabled": false,
