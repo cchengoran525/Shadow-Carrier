@@ -438,7 +438,14 @@ class HRIStateMachine:
         approaching_fast = evidence_ok and fast
         bend_go = (bend and near_bend and self.bend_armed
                    and now >= self.receive_cooldown_until)
-        held_go = (held and slow and now >= self.receive_cooldown_until)
+        # 持物交接放行两条路: ① 慢速接近(原有) ② 已近(<=near_dist_m)且站定持物
+        # ② 补"走到跟前站定递物"这一真人最常见的姿态(hide_occupied 回退点到交接点仅~1m,
+        #   主人接近段落在车停稳前, 抵达时已站定 v_sm~0 -> 旧判据永不触发)。
+        # 仅放宽"近距静止"; 远距仍必须 slow, 防侧背袋路人误收。
+        held_close_still = (dist_ok and dist_sm <= p["metric"]["near_dist_m"]
+                            and static_now)
+        held_go = (held and (slow or held_close_still)
+                   and now >= self.receive_cooldown_until)
         pose_go = (evidence_ok and now >= self.receive_cooldown_until
                    and self._pose_offering(owner["bbox"], now))
         offering = evidence_ok and (held_go or bend_go or pose_go)
