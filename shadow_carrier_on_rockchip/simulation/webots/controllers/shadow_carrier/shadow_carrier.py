@@ -35,17 +35,39 @@ SONAR_STOP_CM = 20.0
 HRI_PERIOD_S = 0.30
 WHEEL_RADIUS_M = 0.047      # 与世界 SIM_ROBOT 车轮几何一致(运动学积分用)
 WHEEL_HALF_TRACK_M = 0.115
+# --- V2 虚拟激光雷达 (SIM_LIDAR=1) ---
+# 几何真值 360° 扫描 → 与真机【同一条】 lidar_guard 代码路径 → 命令过滤(限速/停车)。
+# 仿真里没有两层板夹层结构 → 无铜柱, 遮罩为空; 位置/尺寸/速度标定按仿真底盘覆盖。
+LIDAR_ON = os.environ.get("SIM_LIDAR") == "1"
+LIDAR_PERIOD_S = 0.1        # 10Hz 一圈(与 X3 Pro 实机同档)
+LIDAR_SCAN_H = 0.135        # V2 扫描平面高度(m, 两层板夹层)
+LIDAR_STEP_DEG = 2.0        # 180 条射线
+LIDAR_RANGE_MAX = 8.0       # 实用量程(与 lidar_guard.range_max_m 一致)
+LIDAR_NOISE_M = 0.008       # 测距噪声 σ(复刻真实雷达抖动, 顺带压测去噪/去重)
 # 走廊 demo 场景常量 (世界坐标 x, z)
 DORM_DOOR_POS = (-0.85, 3.0)        # 宿舍门内侧(路人入场点)
 HIDE_SPOT = (1.0, -4.3)             # 饮水机旁墙根: 离门 ~9m, 不挡饮水机/冰箱正前方
 SPOT_B = (-1.2, -4.14)              # 备用躲避点(左墙, bearing≈-30°→扇区7, 无门/无家电): hide_occupied 回退目标
 FOLLOW_KEEP_MIN_M = 2.6             # 仿真车距保持: 近于此距离刹车暂停跟随
 FOLLOW_KEEP_RESUME_M = 3.0          # 远于此距离恢复推进(滞回)
-SCENARIO = os.environ.get("SIM_SCENARIO", "baseline")   # baseline/cross2/occlude/bench_block/hide_occupied/handoff_cross/phantom
-# 幻影注入: 复刻实机夜景失败模式(宿舍 95/98 帧含幻影 person) — 检测层噪声仿真
+SCENARIO = os.environ.get("SIM_SCENARIO", "baseline")   # baseline/cross2/occlude/bench_block/hide_occupied/handoff_cross/phantom/passby
+# --- 云台冻结期的两项"仿真诚实度"开关 (2026-10-16) ---
+# SIM_TURN=1: 打开底盘转向通道(原地转/掉头搜索); 实机由 follow_controller.TURN_ENABLED 控制
+TURN_ON = os.environ.get("SIM_TURN") == "1"
+# SIM_GT_TURN=0: 关掉 ground-truth 掉头假动作(_face_toward)。默认 1 = 保持历史剧本行为;
+#   passby 场景必须置 0, 否则 WAIT 分支会用真值瞬移航向, 把"车自己转没转"验成假绿。
+GT_TURN = os.environ.get("SIM_GT_TURN", "1") == "1"
+# 水平 FOV 裁剪: 真机 640×480 相机水平半视场 ±32.2°(FX=508.2) → tan=0.63。
+# 之前 _project_box 只按深度裁剪 → 主人在车侧 80° 也"看得见"(cx≈6000px),
+# 让 follow 在仿真里永远不丢人; 真机 ±32° 外什么都没有 → 裁掉才与实机同构。
+FOV_CULL_TAN = 0.63
+FOV_LOG_INTERVAL_S = 1.0
 PHANTOM_RATE = float(os.environ.get("SIM_PHANTOM_RATE",
                                     "0.35" if os.environ.get("SIM_SCENARIO") == "phantom" else "0"))
 PHANTOM_SEED = int(os.environ.get("SIM_PHANTOM_SEED", "7"))
+
+if TURN_ON:                     # 仿真内打开转向通道(实机开关不动)
+    _fc_mod.TURN_ENABLED = True
 
 
 def clamp(value, low, high):
@@ -132,11 +154,42 @@ class ShadowCarrierSimulation:
         self._hide_driving = False
         self._hide_arrived = False
         self._drive_to_safe_target_done = False
+        # V2 虚拟雷达: 与真机同一套 lidar_guard(仿真侧只替换扫描来源与标定)
+        self.lidar_on = LIDAR_ON
+        self.lidar_mod = None
+        self.lidar_guard = None
+        self.lidar_cfg = None
+        self.lidar_env = None
+        self.lidar_last = 0.0
+        self.lidar_fid = 0
+        self.lidar_rng = random.Random(11)
+        self._lidar_last_log = 0.0
+        self._sweep_bench_placed = False
+        if self.lidar_on:
+            try:
+                import lidar_guard as _lg
+                self.lidar_mod = _lg
+                self.lidar_cfg = _lg.load_config(overrides={
+                    "v_at_spd_max": MAX_WHEEL_RAD_S * WHEEL_RADIUS_M,
+                    "v_nom_mps": 0.45, "v_min_mps": 0.12,
+                    "pillars_xy": [], "mask_deg": [],
+                    "range_max_m": 8.0,
+                })
+                self.lidar_guard = _lg.Guard(self.lidar_cfg)
+                print(f"[SIM] 虚拟雷达 ON: 360° / {LIDAR_PERIOD_S * 1000:.0f}ms 一圈, "
+                      f"扫描面 z={LIDAR_SCAN_H * 100:.1f}cm, "
+                      f"v_at_spd_max={MAX_WHEEL_RAD_S * WHEEL_RADIUS_M:.2f}m/s")
+            except Exception as error:
+                self.lidar_on = False
+                print(f"[SIM] 虚拟雷达不可用({error}), 退回无雷达模式")
         self._log_open()
         self.machine = self._new_state_machine()
         self.follower = FollowController(
             self._follow_cmd,
             person_provider=self._follow_person,
+            yaw_deg_fn=self._yaw_deg,        # 转向通道: 死推算/到位判据(等价实机 IMU yaw_deg)
+            yaw_rate_fn=self._yaw_rate_deg,  # 转向通道: 归因项(等价实机 IMU yaw_rate_dps)
+            bearing_of_fn=self._bearing_of_cx,   # 用仿真自身内参解码(见该函数注释)
         )
         self.follower.start()
         print("[SIM] Webots adapter ready. HRI is on; use T to toggle it.")
@@ -221,9 +274,62 @@ class ShadowCarrierSimulation:
             if 63.0 <= t < 68.5:
                 s = (t - 63.0) / 5.5
                 self._set_passerby(self._lerp2((0.55, -3.4), (0.55, -4.9), s))
+        elif SCENARIO == "passby":
+            # 主人从车正前走到车正后(最近 1.0m 擦身, 0.8m/s): 云台冻结 + 水平 FOV ±32° 下,
+            # 只有底盘自转能保住视野 —— 这是"原地转"通道的验收场景。
+            # T0 起锁定"车-世界"参考系, 主人按直线走(不跟着车转), 与真实人的行为一致。
+            T0, T1 = 6.0, 12.0
+            if T0 <= t <= T1:
+                ref = getattr(self, "_passby_ref", None)
+                if ref is None:
+                    rp = self._kin_position()
+                    self._passby_ref = ref = (rp[0], rp[2], self._yaw())
+                    self._log({"type": "passby_start",
+                               "robot": [round(rp[0], 2), round(rp[2], 2)],
+                               "yaw_deg": round(self._yaw_deg(), 1),
+                               "turn_on": TURN_ON, "gt_turn": GT_TURN})
+                s = (t - T0) / (T1 - T0)
+                f = 2.6 - 4.8 * s                        # 前方 2.6m → 后方 2.2m
+                lat = 0.35 + 0.65 * min(1.0, s * 3.0)    # 侧向 0.35 → 1.0m(避免起步横向跳变)
+                fx, fz = -math.sin(ref[2]), -math.cos(ref[2])   # 车头前向(世界系)
+                rx, rz = math.cos(ref[2]), -math.sin(ref[2])    # 车体右侧(世界系)
+                self._set_person(ref[0] + fx * f + rx * lat,
+                                 ref[1] + fz * f + rz * lat)
+            elif t > T1 and getattr(self, "_passby_ref", None) is not None:
+                self._passby_ref = None
+                self._log({"type": "passby_end",
+                           "owner": [round(v, 2)
+                                     for v in self.owner_translation.getSFVec3f()[:2]]})
+        elif SCENARIO == "lidar_sweep_block":
+            # V2 雷达 360° 互补验证: 路人站在车【正后方 0.55m】——正面超声(±10°锥)完全看不见,
+            # 但原地转向会把车尾扫向该路人 → 雷达的旋转净空应否决转向。
+            # 车按"搜索主人/取景"的语义持续请求原地左转(实机 = hri_state 的转身动作)。
+            # 判据: 超声全程 CLEAR + 雷达 rot 受阻 + veto 期间车没转起来。
+            if 6.0 <= t < 26.0:
+                self._place_passerby_behind()
+                # 主人固定在饮水机旁(基线 P2 的位置) —— 否则剧本里的主人会从"停着的车"身上
+                # 走过去, 触发的是超声(真人真在场), 会把"超声全程 CLEAR"的对照搞脏。
+                self._set_person(0.0, -5.0)
+                self._manual_command("MOVE L 70")
         elif SCENARIO == "phantom":
             # 幻影注入由 PHANTOM_RATE 全局生效, 剧本沿用基线 — 场景本身不改时间线
             pass
+
+    def _place_passerby_behind(self):
+        """lidar_sweep_block 用: 路人站在车正后方 0.40m(按车实时位姿算)。
+        位置固定一次, 之后每拍重设(基线剧本每拍会把路人设成 None, 故必须每拍压回)。
+        几何核算(离线夹具 + 实跑校准): 最近点 ≈0.21m < 车体扫掠圈 0.227 → 判"禁转"。
+        0.45m 时最近点 0.315m → 只落到"转向限速"(rot_gap 0.16 → 仍给 64dps), 不构成否决。"""
+        if not self._sweep_bench_placed:
+            rp = self._kin_position()
+            yaw = self._yaw()
+            self._passerby_spot = (clamp(rp[0] + 0.40 * math.sin(yaw), -1.2, 1.2),
+                                   clamp(rp[2] + 0.40 * math.cos(yaw), -5.8, 5.8))
+            self._sweep_bench_placed = True
+            self._log({"type": "passerby_placed", "mode": "behind_robot",
+                       "at": [round(self._passerby_spot[0], 2),
+                              round(self._passerby_spot[1], 2)]})
+        self._set_passerby(self._passerby_spot)
 
     def _demo_update(self, t):
         """demo 全场景剧本(仿真秒): 跟出宿舍门→打水躲避→路人进门→隔壁取物回身递给车→一起回宿舍.
@@ -290,7 +396,9 @@ class ShadowCarrierSimulation:
         )
 
     def _log_open(self):
-        path = Path(__file__).resolve().parent / "sim_session.jsonl"
+        # SIM_LOG: 给并行/自动化跑用(多人同时跑同一 world 时默认路径会互相覆盖成垃圾)
+        path = Path(os.environ.get("SIM_LOG")
+                    or (Path(__file__).resolve().parent / "sim_session.jsonl"))
         self.log_file = open(path, "w", buffering=1, encoding="utf-8")  # 每次运行覆盖, 避免多会话混在一起
         self.log_t0 = time.monotonic()
         self.log_file.write(json.dumps({"type": "session_start",
@@ -298,6 +406,10 @@ class ShadowCarrierSimulation:
                                         "scenario": SCENARIO,
                                         "geom_det": self.geom_det,
                                         "autotest": self.autotest,
+                                        "lidar": bool(self.lidar_on),
+                                        "turn_on": TURN_ON,
+                                        "gt_turn": GT_TURN,
+                                        "fov_cull_tan": FOV_CULL_TAN,
                                         "fx_px": round(self.fx_px, 1)}) + "\n")
         print(f"[SIM] 黑匣子: {path}")
         print(f"[SIM] scenario = {SCENARIO}")
@@ -314,6 +426,25 @@ class ShadowCarrierSimulation:
 
     def _yaw(self):
         return self._kin_yaw
+
+    def _yaw_deg(self):
+        """IMU 等价量: 积分航向(度)。仿真 yaw 正 = 左转 = 逆时针, 与实机 IMU 约定一致"""
+        return math.degrees(self._kin_yaw)
+
+    def _yaw_rate_deg(self):
+        """IMU 等价量: 偏航角速度(度/秒, 逆时针为正)。用与积分器同一套轮速→ω 换算,
+        这样 follow 的归因项(θ̇ + IMU_TO_THETA_SIGN·yaw_rate)在仿真里也成立。"""
+        scale = MAX_WHEEL_RAD_S / 255.0
+        omega = (self.right_current - self.left_current) / 2.0 * scale \
+            * WHEEL_RADIUS_M / WHEEL_HALF_TRACK_M
+        return math.degrees(omega)
+
+    def _bearing_of_cx(self, cx):
+        """像素列 → 车体系方位角, 用**仿真投影自己的内参**(fx_px/CX=W/2)。
+        实机 follow 默认走 state/decoder(真机内参 508.2/292.7); 若仿真也用它,
+        两套内参不一致会引入常数偏置 + 尺度误差(实测 +3.1° / ×1.15) → 转向通道
+        的 θ 是错的。所以这里按仿真的真实模型解码, 与 _project_box 严格互逆。"""
+        return math.degrees(math.atan((cx - self.camera.getWidth() / 2.0) / self.fx_px))
 
     def _kin_position(self):
         """机器人运动学位姿(自持状态, 不读 Webots —— 无 physics 节点读数不可靠)"""
@@ -403,7 +534,7 @@ class ShadowCarrierSimulation:
             print(f"[SIM] owner.json publish error: {error}")
 
     def _project_box(self, x, z, w_m, h_m):
-        """世界 (x,z) 的 Person 尺寸 → 针孔投影 bbox; 深度窗外返回 None"""
+        """世界 (x,z) 的 Person 尺寸 → 针孔投影 bbox; 深度窗外/水平出视场返回 None"""
         rp = self._kin_position()
         yaw = self._yaw()
         dx, dz = x - rp[0], z - rp[2]
@@ -412,9 +543,20 @@ class ShadowCarrierSimulation:
         depth = -lz   # 车前方为 -z
         if depth < 0.15 or depth > 6.0:
             return None
+        # 水平视场裁剪(云台冻结 = 相机与车体固连): 出画即无检测, 与真机一致
+        lateral = lx / depth
+        if abs(lateral) > FOV_CULL_TAN:
+            now = self.robot.getTime()
+            if now - getattr(self, "_fov_log_t", -9.0) >= FOV_LOG_INTERVAL_S:
+                self._fov_log_t = now
+                self._log({"type": "fov_exit",
+                           "side": "R" if lateral > 0 else "L",
+                           "bearing_deg": round(math.degrees(math.atan(lateral)), 1),
+                           "dist_m": round(math.hypot(dx, dz), 2)})
+            return None
         bw = self.fx_px * w_m / depth
         bh = self.fx_px * h_m / depth
-        cx = self.camera.getWidth() / 2 + self.fx_px * (lx / depth)
+        cx = self.camera.getWidth() / 2 + self.fx_px * lateral
         cy = self.camera.getHeight() / 2
         return [cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2]
 
@@ -478,9 +620,13 @@ class ShadowCarrierSimulation:
         return False
 
     @staticmethod
-    def _ray_aabb_t(ax, az, dx, dz, ox, oz, hx, hz, seg_len):
-        """射线 (ax,az) 方向 (dx,dz) 与 AABB 的最近入射 t∈[0,1] (段长 seg_len), 无交返回 None"""
-        tmin, tmax = 0.0, 1.0
+    def _ray_dist_m(ax, az, dx, dz, ox, oz, hx, hz, seg_len):
+        """射线 (ax,az) 方向 (dx,dz, 须为单位向量) 与 AABB 的入射距离【米】;
+        超段长 seg_len 或无交 → None。
+        ⚠️ 2026-10-16 修正: 原 `_ray_aabb_t` 返回的 t 已是米(单位方向量的参数), 但两个调用方
+        又乘了段长 → 距离被放大(声呐 2×, 且 1m 之外的命中被 tmax≤1 判成"无交")。
+        真机声呐 20cm 阈值下这个偏差让它等价于 10cm 才停 —— 仿真比实机更宽松, 属安全相关错误。"""
+        tmin, tmax = 0.0, float(seg_len)
         for a, b, lo, hi in ((ax, dx, ox - hx, ox + hx), (az, dz, oz - hz, oz + hz)):
             if abs(b) < 1e-9:
                 if a < lo or a > hi:
@@ -492,12 +638,13 @@ class ShadowCarrierSimulation:
                 tmin, tmax = max(tmin, t1), min(tmax, t2)
                 if tmin > tmax:
                     return None
-        return tmin if tmax >= 0.0 else None
+        return tmin
 
     def _virtual_sonar_cm(self):
         """虚拟超声波(cm): Webots sonar 设备在本世界不返回数据(自测: 直冲端墙 30s 恒 200,
         2026-10-11), 改用几何真值 5 射线(±10°, 对应设备 aperture 0.35)求最近障碍,
-        喂给与真机相同的 blocked 行为代码路径。遮挡体 = 道具 + 四面墙 + 人。"""
+        喂给与真机相同的 blocked 行为代码路径。遮挡体 = 道具 + 四面墙 + 人。
+        2026-10-16: 距离换算修正(见 _ray_dist_m), 现在 0.2–2.0m 内的读数与真机同标定。"""
         rp = self._kin_position()
         yaw = self._yaw()
         best_m = 2.0
@@ -507,13 +654,75 @@ class ShadowCarrierSimulation:
         for da in (-0.175, -0.0875, 0.0, 0.0875, 0.175):
             a = yaw + da
             dx, dz = -math.sin(a), -math.cos(a)   # 前进方向, 与运动学积分一致
-            t_best = None
+            d_best = None
             for (ox, oz, hx, hz) in boxes:
-                t = self._ray_aabb_t(rp[0], rp[2], dx, dz, ox, oz, hx, hz, 2.0)
-                if t is not None and (t_best is None or t < t_best):
-                    t_best = t
-            best_m = min(best_m, (t_best if t_best is not None else 1.0) * 2.0)
+                d = self._ray_dist_m(rp[0], rp[2], dx, dz, ox, oz, hx, hz, 2.0)
+                if d is not None and (d_best is None or d < d_best):
+                    d_best = d
+            best_m = min(best_m, d_best if d_best is not None else 2.0)
         return best_m * 100.0
+
+    def _virtual_scan(self):
+        """几何真值虚拟雷达帧: 360° × LIDAR_STEP_DEG 射线, 与道具/墙/人求交。
+        高度感知: 只有"穿过扫描平面 z=LIDAR_SCAN_H"的物体才返回(桌面板/矮于平面的东西
+        真机也看不见——仿真必须一样, 否则测不出真实的失效边界)。
+        方位角约定与 lidar_guard / [世界] 同源: 0°=车头正前, 正=物理右。"""
+        rp = self._kin_position()
+        yaw = self._yaw()
+        boxes = [(x, z, hx, hz) for (x, z, hx, hz, h) in self._prop_boxes()
+                 if h >= LIDAR_SCAN_H]
+        boxes += [(x, z, hx, hz) for (x, z, hx, hz, _n, h) in self._person_boxes()
+                  if h >= LIDAR_SCAN_H]
+        boxes += [(-1.4, 0.0, 0.05, 6.2), (1.4, 0.0, 0.05, 6.2),
+                  (0.0, -6.05, 1.45, 0.05), (0.0, 6.05, 1.45, 0.05)]
+        pts = []
+        for b_deg in range(0, 360, int(LIDAR_STEP_DEG)):
+            b = math.radians(b_deg)
+            dx, dz = math.sin(b - yaw), -math.cos(b - yaw)
+            d_best = None
+            for (ox, oz, hx, hz) in boxes:
+                d = self._ray_dist_m(rp[0], rp[2], dx, dz, ox, oz, hx, hz, LIDAR_RANGE_MAX)
+                if d is not None and (d_best is None or d < d_best):
+                    d_best = d
+            if d_best is None:
+                continue                       # 该方向无回波(超过量程)
+            rng = d_best + self.lidar_rng.gauss(0.0, LIDAR_NOISE_M)
+            if rng <= 0.05:
+                continue
+            pts.append([b_deg, round(rng, 3)])
+        return {"frame_id": self.lidar_fid, "ts": time.monotonic(), "points": pts}
+
+    def _lidar_update(self, now):
+        """10Hz 更新虚拟雷达 → 安全包络(与真机 daemon 同一条代码路径)"""
+        if not self.lidar_on or now - self.lidar_last < LIDAR_PERIOD_S:
+            return
+        self.lidar_last = now
+        self.lidar_fid += 1
+        self.lidar_env = self.lidar_guard.update(self._virtual_scan(), now=now)
+
+    def _lidar_filter(self, command):
+        """命令过滤: 与 rk_control 的 uart_send 同语义(受阻→STOP, 受限→限速)"""
+        if not self.lidar_on or self.lidar_env is None:
+            return command, None
+        try:
+            return self.lidar_mod.apply_to_ascii(command, self.lidar_env, self.lidar_cfg)
+        except Exception:
+            return command, None
+
+    def _lidar_log_fields(self):
+        env = self.lidar_env
+        if not self.lidar_on or env is None:
+            return {}
+        blocked = {k: v for k, v in (env.get("blocked") or {}).items() if v}
+        return {"lidar": {"mode": env.get("mode"), "n": env.get("n_points"),
+                          "blocked": sorted(blocked),
+                          "gap": {"fwd": env["gap_m"].get("fwd"),
+                                  "back": env["gap_m"].get("back"),
+                                  "rot": env.get("rot_gap_m")},
+                          "vx_max": env["limits"].get("vx_max"),
+                          "wz_max": env["limits"].get("wz_max_dps"),
+                          "legs": len(env.get("person_legs") or []),
+                          "escape": (env.get("escape") or {}).get("dir")}}
 
     def _phantoms_update(self):
         """幻影 person 检测注入(复刻实机夜景失败模式: 宿舍 95/98 帧含幻影):
@@ -646,6 +855,13 @@ class ShadowCarrierSimulation:
         self.last_ascii = "DRIVE"
 
     def _execute_ascii(self, command):
+        # V2 雷达避障收口: 与实机同位置(命令进入"固件"前的最后一道)。惰性: 雷达未开时原样。
+        if self.lidar_on and self.lidar_env is not None:
+            command, _note = self._lidar_filter(command)
+            if _note and time.monotonic() - self._lidar_last_log >= 0.5:   # 节流: 黑匣子不刷屏
+                self._lidar_last_log = time.monotonic()
+                self._log({"type": "lidar_filter", "cmd": command, "note": _note})
+                print(f"[SIM] lidar filter: {_note} → {command}")
         parts = command.strip().upper().split()
         if not parts:
             return
@@ -995,6 +1211,8 @@ class ShadowCarrierSimulation:
         self.follower = FollowController(
             self._follow_cmd,
             person_provider=self._follow_person,
+            yaw_deg_fn=self._yaw_deg,
+            yaw_rate_fn=self._yaw_rate_deg,
         )
         self.follower.start()
         self.robot.simulationResetPhysics()
@@ -1034,7 +1252,7 @@ class ShadowCarrierSimulation:
             self._publish_owner_lock()   # 模拟 follow 进程持续发布主人锁(限频 0.2s)
 
             # HIDE 停靠在躲避点后持续注视主人(等效实机救援凝视; 主人去冰箱/回身递物都在视野内)
-            if ((not self.autotest or self.autotest_motion)
+            if (GT_TURN and (not self.autotest or self.autotest_motion)
                     and self.machine.state == "HIDE" and self._hide_arrived):
                 op = self.owner_translation.getSFVec3f()
                 self._face_toward((op[0], op[2]))
@@ -1042,7 +1260,8 @@ class ShadowCarrierSimulation:
             detections = self._detections()
             self._phantoms_update()
             # WAIT 中主人不可见(如交接后主人绕到车后): 掉头寻找主人(等效实机搜索凝视)
-            if ((not self.autotest or self.autotest_motion)
+            # ⚠️ 这是 ground-truth 假动作(直接写 _kin_yaw); SIM_GT_TURN=0 可关, passby 必须关
+            if (GT_TURN and (not self.autotest or self.autotest_motion)
                     and self.machine.state == "WAIT" and not detections
                     and self._owner_gt_dist() is not None
                     and self._owner_gt_dist() < 6.0):
@@ -1057,6 +1276,7 @@ class ShadowCarrierSimulation:
                            "owner": [round(v, 2) for v in op]})
             distance_cm = self._virtual_sonar_cm()
             blocked = 0 < distance_cm <= SONAR_STOP_CM
+            self._lidar_update(now)     # 10Hz: 虚拟雷达 → 安全包络(命令过滤在 _execute_ascii)
 
             if now - self.last_hri_tick >= HRI_PERIOD_S:
                 self._refresh_grid()
@@ -1073,10 +1293,41 @@ class ShadowCarrierSimulation:
                         robot_moving=(abs(self.left_current) + abs(self.right_current) > 5),
                     )
                     if now >= self.manual_until:
-                        if ((not self.autotest or self.autotest_motion)
-                                and out["action"] == "NONE"
-                                and self.machine.state == "FOLLOW"):
-                            self.follower.tick()
+                        # 仿真里 follow 只在 HRI=FOLLOW 时 tick(真机 follow 线程独立于 HRI)。
+                        # passby 场景例外: 主人出画会让 HRI 正确地落到 WAIT, 此时仍要继续
+                        # tick, 否则"丢人→转身搜索"这条链在仿真里根本没被跑到。
+                        _follow_full = ((not self.autotest or self.autotest_motion)
+                                        and out["action"] == "NONE"
+                                        and (self.machine.state == "FOLLOW"
+                                             or (SCENARIO == "passby"
+                                                 and self.machine.state == "WAIT")))
+                        _parked = (self.machine.state == "WAIT"
+                                   or (self.machine.state == "HIDE" and self._hide_arrived))
+                        if _follow_full:
+                            _ft = self.follower.tick()
+                            self._last_follow_info = {
+                                "cmd": None if _ft[0] is None else f"{_ft[0]} {_ft[1]}",
+                                "state": (_ft[2] or {}).get("state"),
+                                "phase": (_ft[2] or {}).get("phase"),
+                                "theta": (_ft[2] or {}).get("theta"),
+                                "rate_world": (_ft[2] or {}).get("rate_world"),
+                                "turn_dir": (_ft[2] or {}).get("turn_dir"),
+                            }
+                        elif (_parked and not _follow_full
+                              and (not self.autotest or self.autotest_motion)
+                              and out["action"] == "NONE"):
+                            # 停驻域(车已停好): 只允许"人从侧方过来时转头接人"——云台冻结后
+                            # 相机 ±32° 是硬边界, 递物的人常站在车侧方(实测 76°), 不转头就
+                            # 永远看不到人, RECEIVE 根本起不来。turn_only 不做平移/不扫 180°。
+                            _ft = self.follower.tick(turn_only=True)
+                            self._last_follow_info = {
+                                "cmd": None if _ft[0] is None else f"{_ft[0]} {_ft[1]}",
+                                "state": (_ft[2] or {}).get("state"),
+                                "phase": (_ft[2] or {}).get("phase"),
+                                "theta": (_ft[2] or {}).get("theta"),
+                                "rate_world": (_ft[2] or {}).get("rate_world"),
+                                "turn_dir": (_ft[2] or {}).get("turn_dir"),
+                            }
                         elif (self.machine.state == "HIDE"
                               and self.safe_target is not None
                               and not self._hide_arrived
@@ -1094,8 +1345,11 @@ class ShadowCarrierSimulation:
                                "passerby": [round(v, 2) for v in self.passerby_translation.getSFVec3f()]
                                            if self.passerby_visible else None,
                                "robot": [round(v, 2) for v in self._kin_position()],
+                               "yaw": round(self._yaw(), 3),
                                "phantoms": len(self.phantoms),
-                               "sonar_cm": round(distance_cm, 1)})
+                               "sonar_cm": round(distance_cm, 1),
+                               "follow": getattr(self, "_last_follow_info", None),
+                               **self._lidar_log_fields()})
                 self.last_hri_tick = now
 
             self._ramp_motors(now, blocked)
@@ -1107,8 +1361,13 @@ class ShadowCarrierSimulation:
             if now - self.last_status >= 1.0:
                 labels = ",".join(sorted({d["label"] for d in detections})) or "none"
                 state = self.machine.state if self.hri_enabled else "OFF"
+                lid = ""
+                if self.lidar_on and self.lidar_env is not None:
+                    lb = {k for k, v in self.lidar_env["blocked"].items() if v}
+                    lid = (f" lidar={self.lidar_env['mode']}/{'|'.join(sorted(lb)) or '-'}"
+                           f" gap_f={self.lidar_env['gap_m'].get('fwd')}")
                 print(f"[SIM] HRI={state} owner={labels} "
-                      f"sonar={distance_cm:.1f}cm cmd={self.last_ascii}")
+                      f"sonar={distance_cm:.1f}cm cmd={self.last_ascii}{lid}")
                 self.last_status = now
 
 

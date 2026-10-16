@@ -107,12 +107,12 @@ def _read_yaw():
     except Exception:
         return None
 
-def _turn_worker(deg, spd):
+def _turn_worker(deg, spd, pivot=False):
     y0 = _read_yaw()
     t0 = time.monotonic()
     with turn_lock:
         turn_state.update(active=True, target=round(y0 + deg, 2), yaw=round(y0, 2),
-                          err=round(deg, 2), started=t0, result="running")
+                          err=round(deg, 2), started=t0, result="running", pivot=pivot)
     try:
         while time.monotonic() - t0 < TURN_TIMEOUT_S:
             y = _read_yaw()
@@ -125,13 +125,17 @@ def _turn_worker(deg, spd):
             if abs(err) < TURN_TOL_DEG:
                 with turn_lock: turn_state["result"] = "ok"
                 break
-            hi = min(255, spd + TURN_DIFF)
-            lo = max(0, spd - TURN_DIFF)
-            # 逆时针(左)=左轮慢右轮快
-            if err > 0:
-                uart_send(f"DIFF L{lo} R{hi}")
+            if pivot:
+                # 原地对转(MOVE L/R = 左右轮反向): 与 DIFF 弧线同向语义, 但 v=0
+                uart_send(f"MOVE {'L' if err > 0 else 'R'} {spd}")
             else:
-                uart_send(f"DIFF L{hi} R{lo}")
+                hi = min(255, spd + TURN_DIFF)
+                lo = max(0, spd - TURN_DIFF)
+                # 逆时针(左)=左轮慢右轮快
+                if err > 0:
+                    uart_send(f"DIFF L{lo} R{hi}")
+                else:
+                    uart_send(f"DIFF L{hi} R{lo}")
             time.sleep(0.1)
         else:
             with turn_lock: turn_state["result"] = "timeout"
@@ -139,16 +143,17 @@ def _turn_worker(deg, spd):
         uart_send("STOP")
         with turn_lock:
             turn_state["active"] = False
-        print(f"[turn] 结束: {turn_state['result']} yaw={turn_state['yaw']}")
+        print(f"[turn] 结束: {turn_state['result']} yaw={turn_state['yaw']}"
+              f"{' (pivot 原地)' if pivot else ''}")
 
-def _turn_start(deg, spd=110):
-    if _get_mode() != "manual":      # follow 模式由 follow 循环掌控底盘
-        return False
+def _turn_start(deg, spd=110, pivot=False):
+    if _get_mode() != "manual":      # follow 模式由 follow 循环掌控底盘(单一控制器纪律,
+        return False                 #  2026-10-14 双控制器抢底盘事故后定)
     if turn_state.get("active"):
         return False
     if _read_yaw() is None:          # IMU 不可用则拒绝(宁缺毋滥)
         return False
-    threading.Thread(target=_turn_worker, args=(deg, spd), daemon=True).start()
+    threading.Thread(target=_turn_worker, args=(deg, spd, pivot), daemon=True).start()
     return True
 
 uart_fd = None
@@ -184,9 +189,85 @@ def uart_open(port):
         return False
 
 def uart_send(cmd):
+    cmd = _safety_filter(cmd)
+    if cmd is None:
+        return False
     with uart_lock:
         try: os.write(uart_fd, f"{cmd}\r\n".encode()); return True
         except: return False
+
+# ====== 激光雷达避障过滤 (V2, 2026-10-16) ======
+# 设计见 docs/V2_LIDAR_AVOIDANCE.md。要点:
+#   ① 惰性契约: /dev/shm/lidar_safety.json 不存在(雷达未上线/daemon 没跑) → 本函数是
+#      直通, **现有链路行为逐字节不变**; 存在才生效。
+#   ② 单一收口: 所有运动命令都经 uart_send → 这里, 因此 follow / HRI / 面板 / 弧线绞合
+#      不需要各自知道雷达的存在。
+#   ③ 过滤链自身故障(文件坏/模块缺) → 放行原命令并记一条日志, 绝不阻断控制。
+SAFETY_FILE = "/dev/shm/lidar_safety.json"
+SAFETY_MAX_AGE_S = 1.0          # 包络过期视为 stale → 只限速
+_safety = {"t": 0.0, "env": None, "mt": None, "lg": None, "warn_t": 0.0}
+
+def _safety_mod():
+    if _safety["lg"] is None:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                        "..", "world", "fusion"))
+        import lidar_guard
+        _safety["lg"] = lidar_guard
+    return _safety["lg"]
+
+def _safety_env():
+    """读安全包络: mtime 未变则复用(10Hz 调用无 I/O 压力); 缺失/坏 → None(直通)"""
+    try:
+        mt = os.stat(SAFETY_FILE).st_mtime
+    except OSError:
+        return None
+    if _safety["mt"] == mt and time.monotonic() - _safety["t"] < 0.5:
+        return _safety["env"]
+    env = None
+    for _ in range(2):                      # 生产者是原子替换, 容错一次并发读
+        try:
+            with open(SAFETY_FILE) as f:
+                env = json.load(f)
+            break
+        except Exception:
+            time.sleep(0.005)
+    _safety.update(t=time.monotonic(), env=env, mt=mt)
+    return env
+
+def _safety_filter(cmd):
+    """运动命令 → 安全包络过滤后命令; 非运动命令/无包络 → 原样返回"""
+    env = _safety_env()
+    if env is None:
+        return cmd
+    if time.time() - float(env.get("ts", 0)) > SAFETY_MAX_AGE_S:
+        env = {"ts": env.get("ts"), "mode": "stale", "ok": False,
+               "degrade_speed_mps": 0.30}
+    try:
+        out, note = _safety_mod().apply_to_ascii(cmd, env)
+    except Exception as e:
+        now = time.monotonic()
+        if now - _safety["warn_t"] > 5.0:
+            _safety["warn_t"] = now
+            print(f"[safety] 过滤异常, 放行原命令: {e}")
+        return cmd
+    if note:
+        now = time.monotonic()
+        if now - _safety["warn_t"] > 2.0:      # 节流: 不刷屏
+            _safety["warn_t"] = now
+            print(f"[safety] {cmd} → {out}  ({note})")
+    return out
+
+def safety_status():
+    env = _safety_env()
+    if env is None:
+        return {"active": False, "reason": "no safety file (雷达未上线/daemon 未运行)"}
+    age = time.time() - float(env.get("ts", 0))
+    return {"active": age <= SAFETY_MAX_AGE_S, "env_age_s": round(age, 2),
+            "mode": env.get("mode"), "ok": env.get("ok"),
+            "blocked": env.get("blocked"), "limits": env.get("limits"),
+            "gap_m": env.get("gap_m"), "nearest": env.get("nearest"),
+            "escape": env.get("escape"), "n_points": env.get("n_points"),
+            "person_legs": env.get("person_legs")}
 
 def gimbal_send(body):
     """body: {"pan":deg} 和/或 {"tilt":deg}, 绝对角度。
@@ -261,11 +342,31 @@ def uart_reader():
 
 # ====== 跟人控制 (延迟import, 失败不影响主服务) ======
 
+def _get_obs():
+    """超声波状态回调: (blocked, cm)。新鲜度与凝视驱动线程同语义(>1s 视为失效)。
+    供 follow 的底盘转向通道做否决(受阻时不继续原地拧)。"""
+    with obs_lock:
+        fresh = time.monotonic() - obs_state["t"] < 1.0
+        return (bool(fresh and obs_state["blocked"]), obs_state["cm"])
+
+def _weak_cue():
+    """底盘转向弱线索(owner_id 产出): 只维持原地转, 不放行前进/不进候选池。
+    follow_controller.TURN_ENABLED=False 时不被消费 → 接线本身无副作用。"""
+    try:
+        import owner_id
+        prof = fc.profile if fc is not None else None
+        return owner_id.weak_cue(prof)
+    except Exception:
+        return None
+
 def _follow_loop():
     global fc
     try:
         from follow_controller import FollowController
-        fc = FollowController(uart_send, yaw_rate_fn=_get_yaw_rate)
+        fc = FollowController(uart_send, yaw_rate_fn=_get_yaw_rate,
+                              yaw_deg_fn=_read_yaw,    # 转向通道: 死推算/到位判据
+                              obs_fn=_get_obs,         # 转向通道: 受阻否决
+                              weak_cue_fn=_weak_cue)   # 转向通道: 人只剩腿时的方向权重
         if not fc.start():
             # 机主原则: 认主失败拒绝跟随, 模式退回手动(凝视线随之退出)
             print("[follow] 认主失败, 跟随未启动")
@@ -458,6 +559,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/': self._page()
         elif self.path == '/ping': self._json({"uart": uart_fd is not None, "mode": _get_mode()})
         elif self.path == '/mode': self._json({"mode": _get_mode()})
+        elif self.path == '/safety': self._json(safety_status())
         elif self.path == '/turn/status': self._json(turn_state)
         else: self.send_response(302); self.send_header('Location','/'); self.end_headers()
     def do_POST(self):
@@ -504,8 +606,34 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/imu/zero':
             self._json({"ok": _imu_zero()})
             return
+        if self.path == '/turn_pivot':
+            # 原地对转(真·原地掉头)到指定角度: IMU 闭环。手动模式专用 —— 跟随态的
+            # 原地转由 follow_controller 的转向通道内部完成(同一控制器纪律)。
+            try:
+                cl = int(self.headers.get('Content-Length', 0))
+                body = json.loads(self.rfile.read(cl)) if cl else {}
+                deg = float(body.get('deg', 180))
+                try:      # 速度默认值与转向通道同源(保持延迟 import 的纪律)
+                    from follow_controller import PIVOT_PWM as _pivot_pwm
+                except Exception:
+                    _pivot_pwm = 110
+                spd = int(body.get('speed', _pivot_pwm))
+                if _turn_start(deg, spd, pivot=True):
+                    self._json({"ok": True, "state": turn_state})
+                else:
+                    self._json({"ok": False, "state": turn_state,
+                                "error": "busy / imu unavailable / follow mode"})
+                return
+            except Exception:
+                self.send_response(400); self._text('BAD')
+                return
         r = {'/forward':'MOVE F 180','/back':'MOVE B 180','/left':'MOVE L 150','/right':'MOVE R 150','/stop':'STOP'}
         if self.path in r:
+            # 服务端门禁(2026-10-16): 跟随时底盘归 follow 循环独占, 面板/curl 误触会抢控制。
+            # /stop 例外 —— 任何模式下都必须能急停。
+            if self.path != "/stop" and _get_mode() != "manual":
+                self._json({"ok": False, "error": "follow mode: 手动运动端点已锁"})
+                return
             self._text("OK" if uart_send(r[self.path]) else "FAIL")
         elif self.path == '/mode/manual':
             _stop_follow()

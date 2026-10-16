@@ -86,6 +86,9 @@
 | `fusion/solve_desk_pose.py` / `validate_desk.py` | 单次位姿反解 / 棋盘精度验证 |
 | `fusion/of_bridge.py` | 光流桥原型（YOLO 抽帧↔光流插值，录制/评测）|
 | `fusion/pose_server.cc` | YOLOv8-Pose 旁路服务（派生 facing/offering，纳秒触发）|
+| `fusion/lidar_guard.py` | **V2 雷达避障核**（扫描帧→安全包络+命令过滤，纯逻辑零依赖；见下节）|
+| `fusion/lidar_guard_daemon.py` | 扫描文件→安全包络文件的常驻桥（`--once/--replay/--record`）|
+| `fusion/test_lidar_guard.py` | 避障核离线回归（51 断言，无硬件）|
 | `fusion/calib_prod.json` | **生产位姿经验标定**（Tier1b 已知距离三点：h=148mm/tilt=0.43°，距离 ≤2%）|
 | `fusion/calib_pose.json` | PnP 扫掠拟合结果（地面 128~140）|
 | `CALIBRATION.md` | **标定总纲**（四层触发流程/工具/验收/原则）|

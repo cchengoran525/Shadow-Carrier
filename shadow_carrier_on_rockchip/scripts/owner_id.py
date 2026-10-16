@@ -26,6 +26,17 @@ SAT_LOW = 40.0           # 模板平均饱和度低于此值 → 颜色权重自
 CONF_MIN = 0.50          # person置信度地板(YOLO对家具的低置信度误报在此被拦)
 MIN_BOX_H = 70           # 最小框高px(过滤远处小误检)
 
+# ===== 底盘转向"弱线索" (2026-10-16) =====
+# 场景: 主人近距擦身时画面里只剩腿(无头无躯干), YOLO 出不了 person → 若"没有人框就停",
+# 车会在demo里跟丢。这条通道只回答"往哪边转", 不回答"谁是主人"。
+# ⚠️ 机主原则第0层(见 _fetch_detections): 候选池入口不放宽; 本通道独立于候选池,
+#    不进 select_target / 不写 owner.json / 不进 KF / 不放行前进(只授权原地转)。
+LOWCONF_MIN_P = 0.30     # 低置信框下限: 低于此连弱线索都不算(幻影兜底)
+LEG_BAND_TOP_FRAC = 0.45 # "下半带"起始行比例(地平线以下; 腿/下装在这里)
+LEG_BP_THRESH = 60       # 颜色反投影二值化阈值
+LEG_MIN_AREA = 300       # 连通域最小面积(px²)
+LEG_MIN_ASPECT = 0.5     # 高/宽 下限: 腿是竖条, 横比竖宽的块多半是地面/墙裙
+
 # ===== BLE 在场心跳 (慢速兜底, 非实时锚定) =====
 BAND_MAC = "04:34:C3:15:AE:0E"   # Xiaomi Smart Band 9, 未连接手机时公开广播
 BAND_FRESH_S = 60                # 多久内见过手环算"主人还在附近"
@@ -217,13 +228,15 @@ def _aspect(box):
 
 
 class OwnerProfile:
-    """主人外观模板: 平均 HSV 直方图 + 中位体态比 (+饱和度能量用于自适应权重)"""
+    """主人外观模板: 平均 HSV 直方图 + 中位体态比 (+饱和度能量用于自适应权重)
+    + 下装(腿带)直方图: 只服务"底盘转向弱线索", 不参与主人判定。"""
 
-    def __init__(self, hist, aspect, samples, sat_energy=None):
+    def __init__(self, hist, aspect, samples, sat_energy=None, leg_hist=None):
         self.hist = hist
         self.aspect = aspect
         self.samples = samples
         self.sat_energy = sat_energy
+        self.leg_hist = leg_hist      # 框下半带直方图(见 find_leg_band)
 
     def color_sim(self, hist):
         if self.hist is None or hist is None:
@@ -243,6 +256,52 @@ class OwnerProfile:
         return w_c * self.color_sim(_roi_hist(hsv, box)) \
              + w_a * self.aspect_sim(_aspect(box))
 
+    def find_leg_band(self, img_bgr):
+        """画面下半带的"下装(腿)"颜色匹配 → (u_px, score) 或 None。
+
+        用途: 主人近距擦身时画面里只剩腿(无头无躯干), YOLO 出不了 person → 用
+        颜色反投影 + 连通域找出腿的横向位置, 给**底盘转向通道**一个方向权重,
+        好让车继续转而不是"没有人框就停下"。
+
+        ⚠️ 机主原则第0层(owner_id.py:157): 本函数不产生主人候选 —— 不进
+        `_fetch_detections`/`select_target`、不写 owner.json、不进 KF、不刷新模板,
+        也绝不放行前进(前进只由强证据授权)。
+        """
+        if self.leg_hist is None or img_bgr is None:
+            return None
+        try:
+            hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+            h, w = hsv.shape[:2]
+            band = hsv[int(h * LEG_BAND_TOP_FRAC):, :]
+            # 直方图是 [0,1] 归一化的 float64 → 必须转 float32 并给 scale=255,
+            # 否则 calcBackProject 输出只有 0/1 两级(实测), 二值化会把目标全滤掉
+            hist_t = np.float32(self.leg_hist)
+            bp = cv2.calcBackProject([band], [0, 1], hist_t, [0, 180, 0, 256], 255)
+            bp = cv2.medianBlur(bp, 5)
+            _, thr = cv2.threshold(bp, LEG_BP_THRESH, 255, cv2.THRESH_BINARY)
+            n, _lab, stats, _cent = cv2.connectedComponentsWithStats(thr, 8)
+            best = None
+            for i in range(1, n):
+                x, y, ww, hh, area = (int(stats[i][0]), int(stats[i][1]),
+                                      int(stats[i][2]), int(stats[i][3]),
+                                      int(stats[i][4]))
+                if area < LEG_MIN_AREA or hh < 20:
+                    continue
+                if hh < LEG_MIN_ASPECT * ww:      # 腿是竖条: 横比竖宽的块多半是地面/墙裙
+                    continue
+                roi = band[y:y + hh, x:x + ww]
+                hist = cv2.calcHist([roi], [0, 1], None, [H_BINS, S_BINS],
+                                    [0, 180, 0, 256])
+                cv2.normalize(hist, hist, 0, 1, cv2.NORM_MINMAX)
+                sim = 1.0 - float(cv2.compareHist(self.leg_hist, hist,
+                                                  cv2.HISTCMP_BHATTACHARYYA))
+                score = sim * min(1.0, area / (2.0 * LEG_MIN_AREA))
+                if best is None or score > best[1]:
+                    best = (x + ww / 2.0, score)
+            return best
+        except Exception:
+            return None
+
 
 def read_recent_frame():
     """读双缓冲里较新的一帧(两帧都在 ~150ms 内, 任取其一即可)"""
@@ -259,6 +318,7 @@ def read_recent_frame():
 def enroll(log=print):
     """快速认主: 采样 ENROLL_DURATION_S 秒内最大 person, 返回 OwnerProfile 或 None"""
     hists, aspects, sats = [], [], []
+    leg_hists = []           # 下装(腿带)模板: 只喂转向弱线索, 不参与主人判定
     t_end = time.time() + ENROLL_DURATION_S
     while time.time() < t_end:
         box = _largest(_fetch_detections())
@@ -275,6 +335,12 @@ def enroll(log=print):
                     y2 = min(hsv.shape[0], int(box["y2"]))
                     if x2 - x1 > 8 and y2 - y1 > 8:
                         sats.append(float(hsv[y1:y2, x1:x2, 1].mean()))
+                        # 下装 = 框下部 40%(擦身时只剩这一段在画面里)
+                        leg = _roi_hist(hsv, {"x1": box["x1"],
+                                              "y1": box["y1"] + (y2 - y1) * 0.6,
+                                              "x2": box["x2"], "y2": box["y2"]})
+                        if leg is not None:
+                            leg_hists.append(leg)
         time.sleep(ENROLL_INTERVAL_S)
     log(f"[owner] enroll samples={len(hists)}")
     if len(hists) < 4:
@@ -282,8 +348,12 @@ def enroll(log=print):
     sat = float(np.mean(sats)) if sats else None
     mean_hist = np.mean(np.stack(hists), axis=0)
     cv2.normalize(mean_hist, mean_hist, 0, 1, cv2.NORM_MINMAX)
-    log(f"[owner] template sat_energy={sat:.0f}")
-    return OwnerProfile(mean_hist, float(np.median(aspects)), len(hists), sat)
+    leg_hist = None
+    if len(leg_hists) >= 4:
+        leg_hist = np.mean(np.stack(leg_hists), axis=0)
+        cv2.normalize(leg_hist, leg_hist, 0, 1, cv2.NORM_MINMAX)
+    log(f"[owner] template sat_energy={sat:.0f} leg_samples={len(leg_hists)}")
+    return OwnerProfile(mean_hist, float(np.median(aspects)), len(hists), sat, leg_hist)
 
 
 def select_target(profile, img_bgr, dets, tracker=None):
@@ -312,3 +382,72 @@ def select_target(profile, img_bgr, dets, tracker=None):
     if best_s < SCORE_MIN:
         return None, best_s
     return best, best_s
+
+
+def _fetch_raw_persons():
+    """原始 person 列表(**不做层0过滤**)。
+
+    ⚠️ 机主原则第0层: 候选池入口仍是 `_fetch_detections`(全链路唯一), 本函数是并列的
+    旁路, 只喂"转向弱线索"。"放宽门槛"与"旁路一条只驱动原地转的通道"是两件事——
+    前者会让幻影重新进候选池(夜景 95/98 帧事故), 后者最坏只是多转几度。
+    """
+    try:
+        req = urllib.request.Request(DET_API, headers={"User-Agent": "owner-weak"})
+        d = json.loads(urllib.request.urlopen(req, timeout=1.0).read())
+    except Exception:
+        return []
+    out = []
+    for x in d.get("detections", []):
+        try:
+            out.append({"c": str(x.get("c")), "p": float(x.get("p", 0.0)),
+                        "x1": float(x["x1"]), "y1": float(x["y1"]),
+                        "x2": float(x["x2"]), "y2": float(x["y2"])})
+        except (KeyError, TypeError, ValueError):
+            continue
+    return out
+
+
+def weak_cue(profile=None, dets=None, img_bgr=None):
+    """底盘转向弱线索: 返回 {"dir","score","src"} 或 None。
+
+    只回答"往哪边转"(dir 与 follow 的 offset 同号约定: 图右=R), 不回答"谁是主人"。
+    来源(取分高者):
+      ① low_conf: 被层0拦下的低置信/贴底框 —— 零 CV 成本, 通常最先命中
+      ② leg_band: 认主时派生的"下装模板" + 画面下半带颜色反投影/CamShift 类匹配
+                  (主人近距擦身时画面里只剩腿, YOLO 出不了 person)
+
+    ⚠️ 绝不: 写 owner.json / 进 select_target / 进 KF / 刷新模板 / 放行前进。
+    """
+    cands = []
+    W = 640.0
+    try:
+        raw = _fetch_raw_persons() if dets is None else dets
+        for d in raw:
+            if str(d.get("c")) != "person":
+                continue
+            p = float(d.get("p", 0.0))
+            bh = float(d["y2"]) - float(d["y1"])
+            if p < LOWCONF_MIN_P:
+                continue
+            if p >= CONF_MIN and bh >= MIN_BOX_H:
+                continue                     # 层0已收 → 走强通道, 不重复
+            clipped = float(d["y2"]) >= 478.0 or float(d["y1"]) <= 2.0   # 贴底/贴顶(半身出画)
+            score = min(1.0, p / CONF_MIN) * (1.0 if clipped else 0.75)
+            u = (float(d["x1"]) + float(d["x2"])) / 2.0
+            cands.append({"dir": "R" if u > W / 2 else "L",
+                          "score": round(score, 3), "src": "low_conf"})
+    except Exception:
+        pass
+    try:
+        if profile is not None:
+            img = img_bgr if img_bgr is not None else read_recent_frame()
+            got = profile.find_leg_band(img) if img is not None else None
+            if got is not None:
+                u, score = got
+                cands.append({"dir": "R" if u > W / 2 else "L",
+                              "score": round(float(score), 3), "src": "leg_band"})
+    except Exception:
+        pass
+    if not cands:
+        return None
+    return max(cands, key=lambda c: c["score"])
