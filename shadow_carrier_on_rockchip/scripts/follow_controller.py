@@ -54,6 +54,15 @@ CYCLE_S = 0.1         # 名义控制周期(仅实机路径参考; 判定逻辑�
 LOST_TIMEOUT_S = 2.4      # 连续丢失多久 → wait_owner / lost_stop
 SEARCH_BACK_S = 1.2       # 丢人后小幅后退搜索时长
 LOW_STREAK_S = 3.2        # 连续低分多久 → 清跟踪器(逃逸错锁)
+
+# ===== 换人确认门 (2026-10-16, passby 防吸路人) =====
+# 背景: TRACK 阶段原对任何一帧匹配到的人立即认作强证据 → 主人擦身出画时,
+#       同色路人单帧即可顶替锁定。改为: 非连续候选需连续帧确认后才生效。
+# 连续(与跟踪器预测一致)或首次锁定 → 不延迟; 仅"换人/重获"付确认代价。
+LOCK_CONFIRM_N = 3          # 非连续候选(换人/重获)需连续帧数
+LOCK_CONFIRM_STRICT_N = 5   # 候选在"出画侧反方向"时更严(擦身窗口)
+SWITCH_SCORE_MARGIN = 0.03  # 非连续候选起始门槛: SCORE_MIN + margin
+SWITCH_MAX_PX = 200         # 与跟踪器预测中心超过此值 = 非连续(换人候选)
 BACK_SPD = 85
 BACK_MS = 0.25
 # 丢人搜索: 找不到人时先小幅后退找人(配合云台搜索), 而不是只靠云台摇摆
@@ -156,6 +165,10 @@ class FollowController:
         self._last_t = None      # EMA/计时共用: 实测dt
         self._lost_s = 0.0       # 连续丢失秒数
         self._low_s = 0.0        # 连续低分秒数
+        self._conf_center = None # 换人确认门: 候选中心
+        self._conf_n = 0         # 换人确认门: 连续帧计数
+        self._ever_locked = False  # 是否完成过首次锁定(首次不延迟)
+        self._switched_this_frame = False
         self.send_cmd = send_cmd_fn
         self.scx = FCX
         self.scy = FH / 2
@@ -244,6 +257,41 @@ class FollowController:
         self.last_turn_dir = None
         print("[follow] resumed")
 
+    def _lock_confirmed(self, cx, cy, score):
+        """换人确认门(passby 防吸路人)。True=确认可用作强证据。
+        连续(与跟踪器预测一致)或首次锁定 → 直接 True; 非连续候选需连续帧确认,
+        且位于"出画侧反方向"时更严。确认期间不发布 owner.json、不刷新强证据。"""
+        import math as _m
+        import owner_id as _oid
+        pred = self.tracker.predict() if self.tracker is not None else None
+        if pred is not None and self.lost == 0 and \
+                _m.hypot(cx - pred[0], cy - pred[1]) <= SWITCH_MAX_PX:
+            self._conf_center = None; self._conf_n = 0
+            self._switched_this_frame = False
+            return True                      # 连续跟踪 → 正常
+        if pred is None and not self._ever_locked:
+            self._conf_center = None; self._conf_n = 0
+            self._ever_locked = True
+            self._switched_this_frame = False
+            return True                      # 认主后首次锁定 → 不延迟
+        need = LOCK_CONFIRM_N
+        cand_dir = "R" if cx > FCX else "L"
+        if self._exit_sign is not None and cand_dir != self._exit_sign:
+            need = LOCK_CONFIRM_STRICT_N     # 与主人出画侧相反 → 更可能是路人
+        if (self._conf_center is not None and
+                _m.hypot(cx - self._conf_center[0], cy - self._conf_center[1]) <= SWITCH_MAX_PX):
+            self._conf_n += 1
+        else:
+            self._conf_center = (cx, cy); self._conf_n = 1
+        if score < _oid.SCORE_MIN + SWITCH_SCORE_MARGIN or self._conf_n < need:
+            self._switched_this_frame = False
+            print(f"[follow] 换人待确认 {self._conf_n}/{need} score={score:.2f} dir={cand_dir}")
+            return False
+        self._conf_center = None; self._conf_n = 0
+        self._ever_locked = True
+        self._switched_this_frame = True   # 换人确认成功 → 调用方重置跟踪器
+        return True
+
     def _fetch_person(self):
         """Use an injected detector when present; otherwise require the enrolled owner profile."""
         if self.person_provider is not None:
@@ -272,6 +320,7 @@ class FollowController:
                     self.profile, img, dets, tracker=self.tracker)
                 self.last_score = score
                 if box is None:
+                    self._conf_center = None; self._conf_n = 0   # 无候选 → 确认链断开
                     self.low_streak += 1
                     if self.tracker is not None:
                         self.tracker.coast()
@@ -283,9 +332,14 @@ class FollowController:
                     # 机主原则(2026-08-28 定稿): 模板失配 = 画面里没有可信的主人
                     # → 返回None走丢失流程(wait_owner/lost_stop), 绝不转投路人
                     return None
-                _publish_owner(box)   # 发布给 HRI 等消费方(纯新增)
                 cx = (box["x1"] + box["x2"]) / 2
                 cy = (box["y1"] + box["y2"]) / 2
+                # 换人确认门: 未确认 → 本拍不作为强证据(不发布/不刷新/不进KF)
+                if not self._lock_confirmed(cx, cy, score):
+                    return None
+                if self._switched_this_frame and self.tracker is not None:
+                    self.tracker.reset()   # 换人成功: 旧速度无意义, 清掉防过冲
+                _publish_owner(box)   # 发布给 HRI 等消费方(纯新增)
                 if self.tracker is None:
                     self.tracker = owner_id.TargetTracker()
                 self.tracker.update(cx, cy)
