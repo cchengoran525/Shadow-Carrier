@@ -65,12 +65,12 @@
 
 | 接口 | 产出线 | 消费线 | 形式 / 路径 | 内容 | 稳定性 |
 |---|---|---|---|---|---|
-| `/api/detections` | 云台（感知） | 世界 / HRI / 认主 | HTTP `:8080` | 检测框 + `stats` | 冻结（只允许**增量**字段） |
+| `/api/detections` | **感知**（独立/基建托管：`yolo_daemon`+`video_stream_v7`） | 世界 / HRI / 认主 / 云台 | HTTP `:8080` | 检测框 + `stats` | 冻结（只允许**增量**字段） |
 | `owner.json` | 认主 | HRI / 运动控制 / 云台 | `/dev/shm/owner.json` | `{ts,bbox,score?}` | 冻结 |
 | `grid.json` + `sector_scores` | 世界 | HRI | `~/world_lab/fusion/grid.json`；`sector_score.py` 纯函数 | 8扇区×3环极坐标 / 扇区亲和度 | 冻结 |
-| `hri_state.json` | HRI | 运动控制 | `/dev/shm/hri_state.json` | `{ts,state,action,parked}` | 冻结（新增） |
+| `hri_state.json` | HRI | 运动控制 | `/dev/shm/hri_state.json` | `{ts,state,action,parked}` | 冻结（新增）；读不到→运动控制回落 `tick()`（已实现） |
 | `imu.json` | 云台（采集） | 运动控制 | `/dev/shm/imu.json` | `{ts,yaw_rate_dps,yaw_deg,gyro_raw,temp_c,quality}` | 冻结 |
-| UART | 运动控制 | C3（V1）/ S3（V2） | `/dev/ttyACM0` 115200 | V1：`MOVE F/B/L/R <0..255>`、`STOP`；V2：`(vx,vy,wz)` 闭环 | V1 冻结；V2 迁移，**保 DIFF 回退** |
+| UART | 运动控制 | C3（V1）/ S3（V2） | `/dev/ttyACM0` 115200 | V1：`MOVE F/B/L/R <0..255>`、**`DIFF L R`（弧线/原地转主用）**、`STOP`；V2：`(vx,vy,wz)` 闭环 | V1 冻结；V2 迁移，**保 DIFF 回退** |
 | 里程计（V2 新） | 运动控制 | 世界 / HRI | 待定 | 里程/位移（补 `dist_fn` 无源缺口） | 待设计 |
 
 **规则**：改动冻结接口 = ⚠️ 在 `EXCHANGE.md` 显式登记影响哪些线；**只允许向后兼容的增量**。
@@ -124,3 +124,23 @@
 2. 改**冻结接口**：在 `EXCHANGE.md` 用 ⚠️ 标出影响哪些线，只做向后兼容增量。
 3. 只追加、不改删别人在 `EXCHANGE.md` 的条目；长期决策写 `docs/ROADMAP.md`。
 4. 提交本地，由 [统筹] 推送。
+
+> 位置注：本文件在 `shadow_carrier_on_rockchip/docs/`，与根 `docs/` 并存——**以本文件为架构权威**，位置暂不统一。
+
+---
+
+## 10. 文档权威源（同一事实只信这三份）
+
+> 项目文档已 18+ 份，同一事实多处并存会打架。**规则：下表"权威源"之外的都是"背景/细节"，冲突时以权威源为准；改权威源要在 `EXCHANGE.md` 登记。**
+
+| 类别 | **权威源（改这个才算数）** | 降为背景（只读/互引） |
+|---|---|---|
+| 架构 / 边界 / 接口 | **`ARCHITECTURE.md`（本文件）** + `EXCHANGE.md`（动态） | — |
+| 计划 / 排期 | **`ROADMAP.md`**（+ `REVIEW_AND_SEMESTER_PLAN.md`、`V2V3_ROADMAP.md`） | `PACKAGING_PLAN.md` 的排期表 |
+| 动态 / 进度 / 契约变更 | **`EXCHANGE.md`**（本地，不入 git） | — |
+| 演示 | `DEMO_PLAN.md` | `DEMO_VIDEO/` |
+| 平台 / 硬件 | `V2_CHASSIS_GIMBAL_DESIGN.md` | `V2_LIDAR_*`、`CAMERA_SELECTION.md` |
+| 研究 / 定位 | `RESEARCH_POSITIONING.md` + `PRESENCE_MANAGEMENT_SURVEY.md` | `AFFINITY_SCORE_LITERATURE.md` |
+| 封存清单 | `DEFERRED_WORK.md` | — |
+
+**口诀**：**架构看 `ARCHITECTURE`，计划看 `ROADMAP`，动态看 `EXCHANGE`**；其余都是它们的注脚。
