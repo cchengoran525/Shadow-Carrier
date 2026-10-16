@@ -1,0 +1,405 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="910" viewBox="0 0 960 910">
+<defs><pattern id="holes" width="12.70" height="12.70" patternUnits="userSpaceOnUse">
+    <circle cx="6.35" cy="6.35" r="2.16" fill="#ffffff" stroke="#b9a37e" stroke-width="1.1"/>
+    </pattern></defs>
+<rect width="960" height="910" fill="#ffffff"/>
+<text x="80.0" y="62.0" font-family="Helvetica,Arial,sans-serif" font-size="13" fill="#111" text-anchor="start" font-weight="bold">Shadow Carrier V2 — 非 RK 板针位级布局图 · 100×150mm · 孔距 2.54mm · 38 列 × 56 行</text>
+<text x="80.0" y="75.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#555" text-anchor="start" font-weight="normal">实心红/黄/绿/紫圆 = 焊盘(信号名竖排) · 白圈 = 空孔 · 打印按 1:1 (A3 或 150%)</text>
+<rect x="80.0" y="80.0" width="500.0" height="750.0" fill="#f2ead8" stroke="#8a7a5c" stroke-width="1.6" rx="3"/>
+<rect x="80.0" y="80.0" width="500.0" height="750.0" fill="url(#holes)"/>
+<text x="143.5" y="71.0" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">5</text>
+<text x="143.5" y="844.0" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">5</text>
+<text x="207.0" y="71.0" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">10</text>
+<text x="207.0" y="844.0" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">10</text>
+<text x="270.5" y="71.0" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">15</text>
+<text x="270.5" y="844.0" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">15</text>
+<text x="334.0" y="71.0" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">20</text>
+<text x="334.0" y="844.0" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">20</text>
+<text x="397.5" y="71.0" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">25</text>
+<text x="397.5" y="844.0" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">25</text>
+<text x="461.0" y="71.0" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">30</text>
+<text x="461.0" y="844.0" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">30</text>
+<text x="524.5" y="71.0" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">35</text>
+<text x="524.5" y="844.0" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">35</text>
+<text x="70.0" y="146.5" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">5</text>
+<text x="590.0" y="146.5" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">5</text>
+<text x="70.0" y="210.0" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">10</text>
+<text x="590.0" y="210.0" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">10</text>
+<text x="70.0" y="273.5" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">15</text>
+<text x="590.0" y="273.5" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">15</text>
+<text x="70.0" y="337.0" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">20</text>
+<text x="590.0" y="337.0" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">20</text>
+<text x="70.0" y="400.5" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">25</text>
+<text x="590.0" y="400.5" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">25</text>
+<text x="70.0" y="464.0" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">30</text>
+<text x="590.0" y="464.0" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">30</text>
+<text x="70.0" y="527.5" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">35</text>
+<text x="590.0" y="527.5" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">35</text>
+<text x="70.0" y="591.0" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">40</text>
+<text x="590.0" y="591.0" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">40</text>
+<text x="70.0" y="654.5" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">45</text>
+<text x="590.0" y="654.5" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">45</text>
+<text x="70.0" y="718.0" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">50</text>
+<text x="590.0" y="718.0" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">50</text>
+<text x="70.0" y="781.5" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">55</text>
+<text x="590.0" y="781.5" font-family="Helvetica,Arial,sans-serif" font-size="7" fill="#8a7a5c" text-anchor="middle" font-weight="normal">55</text>
+<line x1="105.4" y1="92.7" x2="524.5" y2="92.7" stroke="#c0392b" stroke-width="3.0" stroke-linecap="round"/>
+<text x="105.4" y="85.7" font-family="Helvetica,Arial,sans-serif" font-size="7.2" fill="#c0392b" text-anchor="start" font-weight="normal">12V 母线 (背面 20AWG 飞线; 各支路在此取电)</text>
+<line x1="105.4" y1="410.2" x2="524.5" y2="410.2" stroke="#2c3e50" stroke-width="3.0" stroke-linecap="round" stroke-dasharray="6,4"/>
+<text x="105.4" y="403.2" font-family="Helvetica,Arial,sans-serif" font-size="7.2" fill="#2c3e50" text-anchor="start" font-weight="normal">GND 星地母线 (背面裸铜线; 所有 GND 就近点焊)</text>
+<rect x="86.4" y="111.8" width="101.6" height="241.3" fill="#fdecea" stroke="#c0392b" stroke-width="1" rx="3" opacity="0.5"/>
+<text x="91.4" y="123.8" font-family="Helvetica,Arial,sans-serif" font-size="8.0" fill="#c0392b" text-anchor="start" font-weight="bold">① 电源入口</text>
+<circle cx="105.4" cy="130.8" r="4.3" fill="#c0392b"/>
+<text x="107.8" y="127.4" font-family="Helvetica,Arial,sans-serif" font-size="5.4" fill="#c0392b" text-anchor="start" font-weight="normal" transform="rotate(-90 107.8 127.4)">XT30+</text>
+<circle cx="130.8" cy="130.8" r="4.3" fill="#c0392b"/>
+<text x="133.2" y="127.4" font-family="Helvetica,Arial,sans-serif" font-size="5.4" fill="#c0392b" text-anchor="start" font-weight="normal" transform="rotate(-90 133.2 127.4)">XT30-</text>
+<text x="118.1" y="164.8" font-family="Helvetica,Arial,sans-serif" font-size="6.6" fill="#c0392b" text-anchor="middle" font-weight="normal">XT30 电源座</text>
+<circle cx="105.4" cy="168.9" r="4.3" fill="#c0392b"/>
+<text x="107.8" y="165.5" font-family="Helvetica,Arial,sans-serif" font-size="5.4" fill="#c0392b" text-anchor="start" font-weight="normal" transform="rotate(-90 107.8 165.5)">保险A</text>
+<circle cx="130.8" cy="168.9" r="4.3" fill="#c0392b"/>
+<text x="133.2" y="165.5" font-family="Helvetica,Arial,sans-serif" font-size="5.4" fill="#c0392b" text-anchor="start" font-weight="normal" transform="rotate(-90 133.2 165.5)">保险B</text>
+<text x="118.1" y="202.9" font-family="Helvetica,Arial,sans-serif" font-size="6.4" fill="#c0392b" text-anchor="middle" font-weight="normal">保险丝座 7.5A 慢熔</text>
+<circle cx="105.4" cy="207.0" r="4.3" fill="#c0392b"/>
+<text x="107.8" y="203.6" font-family="Helvetica,Arial,sans-serif" font-size="5.4" fill="#c0392b" text-anchor="start" font-weight="normal" transform="rotate(-90 107.8 203.6)">开关A</text>
+<circle cx="130.8" cy="207.0" r="4.3" fill="#c0392b"/>
+<text x="133.2" y="203.6" font-family="Helvetica,Arial,sans-serif" font-size="5.4" fill="#c0392b" text-anchor="start" font-weight="normal" transform="rotate(-90 133.2 203.6)">开关B</text>
+<text x="118.1" y="241.0" font-family="Helvetica,Arial,sans-serif" font-size="6.4" fill="#c0392b" text-anchor="middle" font-weight="normal">船型开关 ≥10A</text>
+<text x="130.8" y="249.1" font-family="Helvetica,Arial,sans-serif" font-size="6.6" fill="#c0392b" text-anchor="middle" font-weight="normal">12V 端子排 (4 位)</text>
+<circle cx="105.4" cy="283.2" r="4.3" fill="#c0392b"/>
+<text x="107.8" y="279.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#c0392b" text-anchor="start" font-weight="normal" transform="rotate(-90 107.8 279.8)">12V_IN</text>
+<circle cx="127.0" cy="283.2" r="4.3" fill="#c0392b"/>
+<text x="129.4" y="279.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#c0392b" text-anchor="start" font-weight="normal" transform="rotate(-90 129.4 279.8)">12V</text>
+<circle cx="148.6" cy="283.2" r="4.3" fill="#c0392b"/>
+<text x="151.0" y="279.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#c0392b" text-anchor="start" font-weight="normal" transform="rotate(-90 151.0 279.8)">GND</text>
+<circle cx="170.2" cy="283.2" r="4.3" fill="#c0392b"/>
+<text x="172.6" y="279.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#c0392b" text-anchor="start" font-weight="normal" transform="rotate(-90 172.6 279.8)">GND</text>
+<circle cx="105.4" cy="321.3" r="4.3" fill="#c0392b"/>
+<text x="107.8" y="317.9" font-family="Helvetica,Arial,sans-serif" font-size="5.4" fill="#c0392b" text-anchor="start" font-weight="normal" transform="rotate(-90 107.8 317.9)">+</text>
+<circle cx="130.8" cy="321.3" r="4.3" fill="#c0392b"/>
+<text x="133.2" y="317.9" font-family="Helvetica,Arial,sans-serif" font-size="5.4" fill="#c0392b" text-anchor="start" font-weight="normal" transform="rotate(-90 133.2 317.9)">-</text>
+<text x="118.1" y="355.3" font-family="Helvetica,Arial,sans-serif" font-size="5.6" fill="#c0392b" text-anchor="middle" font-weight="normal">C1 470µ/25V</text>
+<circle cx="143.5" cy="321.3" r="4.3" fill="#c0392b"/>
+<text x="145.9" y="317.9" font-family="Helvetica,Arial,sans-serif" font-size="5.4" fill="#c0392b" text-anchor="start" font-weight="normal" transform="rotate(-90 145.9 317.9)">+</text>
+<circle cx="168.9" cy="321.3" r="4.3" fill="#c0392b"/>
+<text x="171.3" y="317.9" font-family="Helvetica,Arial,sans-serif" font-size="5.4" fill="#c0392b" text-anchor="start" font-weight="normal" transform="rotate(-90 171.3 317.9)">-</text>
+<text x="156.2" y="355.3" font-family="Helvetica,Arial,sans-serif" font-size="5.6" fill="#c0392b" text-anchor="middle" font-weight="normal">C2 1000µ/16V</text>
+<circle cx="168.9" cy="321.3" r="4.3" fill="#c0392b"/>
+<text x="171.3" y="317.9" font-family="Helvetica,Arial,sans-serif" font-size="5.4" fill="#c0392b" text-anchor="start" font-weight="normal" transform="rotate(-90 171.3 317.9)">+</text>
+<circle cx="194.3" cy="321.3" r="4.3" fill="#c0392b"/>
+<text x="196.7" y="317.9" font-family="Helvetica,Arial,sans-serif" font-size="5.4" fill="#c0392b" text-anchor="start" font-weight="normal" transform="rotate(-90 196.7 317.9)">-</text>
+<text x="181.6" y="355.3" font-family="Helvetica,Arial,sans-serif" font-size="5.6" fill="#c0392b" text-anchor="middle" font-weight="normal">C3 470µ/10V</text>
+<line x1="105.4" y1="92.7" x2="105.4" y2="130.8" stroke="#c0392b" stroke-width="2.2" stroke-linecap="round"/>
+<line x1="105.4" y1="168.9" x2="105.4" y2="168.9" stroke="#c0392b" stroke-width="2.0" stroke-linecap="round"/>
+<line x1="130.8" y1="130.8" x2="130.8" y2="168.9" stroke="#c0392b" stroke-width="2.0" stroke-linecap="round"/>
+<circle cx="130.8" cy="168.9" r="2.6" fill="#c0392b"/>
+<line x1="105.4" y1="168.9" x2="105.4" y2="207.0" stroke="#c0392b" stroke-width="2.0" stroke-linecap="round"/>
+<circle cx="105.4" cy="207.0" r="2.6" fill="#c0392b"/>
+<line x1="105.4" y1="207.0" x2="105.4" y2="283.2" stroke="#c0392b" stroke-width="2.0" stroke-linecap="round"/>
+<circle cx="105.4" cy="283.2" r="2.6" fill="#c0392b"/>
+<line x1="105.4" y1="92.7" x2="105.4" y2="283.2" stroke="#c0392b" stroke-width="2.4" stroke-linecap="round"/>
+<rect x="187.9" y="111.8" width="101.6" height="241.3" fill="#eaf4fd" stroke="#2471a3" stroke-width="1" rx="3" opacity="0.5"/>
+<text x="192.9" y="123.8" font-family="Helvetica,Arial,sans-serif" font-size="8.0" fill="#2471a3" text-anchor="start" font-weight="bold">② 降压区</text>
+<rect x="188.6" y="125.1" width="87.6" height="62.2" fill="#ffffff" stroke="#2471a3" stroke-width="1.2" rx="2" opacity="0.92"/>
+<text x="232.4" y="138.1" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#2471a3" text-anchor="middle" font-weight="bold">XL4015</text>
+<text x="232.4" y="148.1" font-family="Helvetica,Arial,sans-serif" font-size="6.4" fill="#666" text-anchor="middle" font-weight="normal">12V→7.4V/3A (云台轨)</text>
+<circle cx="207.0" cy="194.3" r="4.3" fill="#2471a3"/>
+<text x="209.4" y="190.9" font-family="Helvetica,Arial,sans-serif" font-size="5.2" fill="#1b4f72" text-anchor="start" font-weight="normal" transform="rotate(-90 209.4 190.9)">IN+</text>
+<circle cx="219.7" cy="194.3" r="4.3" fill="#2471a3"/>
+<text x="222.1" y="190.9" font-family="Helvetica,Arial,sans-serif" font-size="5.2" fill="#1b4f72" text-anchor="start" font-weight="normal" transform="rotate(-90 222.1 190.9)">IN-</text>
+<circle cx="245.1" cy="194.3" r="4.3" fill="#2471a3"/>
+<text x="247.5" y="190.9" font-family="Helvetica,Arial,sans-serif" font-size="5.2" fill="#1b4f72" text-anchor="start" font-weight="normal" transform="rotate(-90 247.5 190.9)">OUT+</text>
+<circle cx="257.8" cy="194.3" r="4.3" fill="#2471a3"/>
+<text x="260.2" y="190.9" font-family="Helvetica,Arial,sans-serif" font-size="5.2" fill="#1b4f72" text-anchor="start" font-weight="normal" transform="rotate(-90 260.2 190.9)">OUT-</text>
+<rect x="188.6" y="226.7" width="87.6" height="62.2" fill="#ffffff" stroke="#2471a3" stroke-width="1.2" rx="2" opacity="0.92"/>
+<text x="232.4" y="239.7" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#2471a3" text-anchor="middle" font-weight="bold">MP1584</text>
+<text x="232.4" y="249.7" font-family="Helvetica,Arial,sans-serif" font-size="6.4" fill="#666" text-anchor="middle" font-weight="normal">12V→5V/2A (A4950 逻辑)</text>
+<circle cx="207.0" cy="295.9" r="4.3" fill="#2471a3"/>
+<text x="209.4" y="292.5" font-family="Helvetica,Arial,sans-serif" font-size="5.2" fill="#1b4f72" text-anchor="start" font-weight="normal" transform="rotate(-90 209.4 292.5)">IN+</text>
+<circle cx="219.7" cy="295.9" r="4.3" fill="#2471a3"/>
+<text x="222.1" y="292.5" font-family="Helvetica,Arial,sans-serif" font-size="5.2" fill="#1b4f72" text-anchor="start" font-weight="normal" transform="rotate(-90 222.1 292.5)">IN-</text>
+<circle cx="245.1" cy="295.9" r="4.3" fill="#2471a3"/>
+<text x="247.5" y="292.5" font-family="Helvetica,Arial,sans-serif" font-size="5.2" fill="#1b4f72" text-anchor="start" font-weight="normal" transform="rotate(-90 247.5 292.5)">OUT+</text>
+<circle cx="257.8" cy="295.9" r="4.3" fill="#2471a3"/>
+<text x="260.2" y="292.5" font-family="Helvetica,Arial,sans-serif" font-size="5.2" fill="#1b4f72" text-anchor="start" font-weight="normal" transform="rotate(-90 260.2 292.5)">OUT-</text>
+<line x1="207.0" y1="92.7" x2="207.0" y2="130.8" stroke="#c0392b" stroke-width="2.0" stroke-linecap="round"/>
+<circle cx="207.0" cy="130.8" r="2.6" fill="#c0392b"/>
+<line x1="207.0" y1="92.7" x2="207.0" y2="232.4" stroke="#c0392b" stroke-width="2.0" stroke-linecap="round"/>
+<circle cx="207.0" cy="232.4" r="2.6" fill="#c0392b"/>
+<line x1="245.1" y1="194.3" x2="245.1" y2="372.1" stroke="#e67e22" stroke-width="2.0" stroke-linecap="round"/>
+<line x1="245.1" y1="372.1" x2="448.3" y2="372.1" stroke="#e67e22" stroke-width="2.0" stroke-linecap="round"/>
+<line x1="448.3" y1="372.1" x2="448.3" y2="600.7" stroke="#e67e22" stroke-width="2.0" stroke-linecap="round"/>
+<line x1="448.3" y1="600.7" x2="372.1" y2="600.7" stroke="#e67e22" stroke-width="2.0" stroke-linecap="round"/>
+<line x1="372.1" y1="600.7" x2="372.1" y2="664.2" stroke="#e67e22" stroke-width="2.0" stroke-linecap="round"/>
+<text x="461.0" y="461.0" font-family="Helvetica,Arial,sans-serif" font-size="5.8" fill="#e67e22" text-anchor="start" font-weight="normal" transform="rotate(-90 461.0 461.0)">7.4V 走 col29→row41 空车道</text>
+<line x1="245.1" y1="295.9" x2="334.0" y2="321.3" stroke="#16a085" stroke-width="2.0" stroke-linecap="round"/>
+<line x1="334.0" y1="321.3" x2="422.9" y2="321.3" stroke="#16a085" stroke-width="2.0" stroke-linecap="round"/>
+<line x1="422.9" y1="321.3" x2="422.9" y2="207.0" stroke="#16a085" stroke-width="2.0" stroke-linecap="round"/>
+<line x1="422.9" y1="207.0" x2="334.0" y2="207.0" stroke="#16a085" stroke-width="2.0" stroke-linecap="round"/>
+<rect x="289.5" y="111.8" width="241.3" height="254.0" fill="#fef9e7" stroke="#b7950b" stroke-width="1" rx="3" opacity="0.5"/>
+<text x="294.5" y="123.8" font-family="Helvetica,Arial,sans-serif" font-size="8.0" fill="#b7950b" text-anchor="start" font-weight="bold">③ 驱动区</text>
+<rect x="290.2" y="125.1" width="125.7" height="74.9" fill="#ffffff" stroke="#b7950b" stroke-width="1.2" rx="2" opacity="0.92"/>
+<text x="353.0" y="138.1" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#b7950b" text-anchor="middle" font-weight="bold">A4950 #1 双路</text>
+<text x="353.0" y="148.1" font-family="Helvetica,Arial,sans-serif" font-size="6.4" fill="#666" text-anchor="middle" font-weight="normal">M1 左前 / M2 右前</text>
+<circle cx="308.6" cy="207.0" r="4.3" fill="#b7950b"/>
+<text x="311.0" y="203.6" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#7d6608" text-anchor="start" font-weight="normal" transform="rotate(-90 311.0 203.6)">VM</text>
+<circle cx="321.3" cy="207.0" r="4.3" fill="#b7950b"/>
+<text x="323.7" y="203.6" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#7d6608" text-anchor="start" font-weight="normal" transform="rotate(-90 323.7 203.6)">GND</text>
+<circle cx="334.0" cy="207.0" r="4.3" fill="#b7950b"/>
+<text x="336.4" y="203.6" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#7d6608" text-anchor="start" font-weight="normal" transform="rotate(-90 336.4 203.6)">VCC</text>
+<circle cx="346.7" cy="207.0" r="4.3" fill="#b7950b"/>
+<text x="349.1" y="203.6" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#7d6608" text-anchor="start" font-weight="normal" transform="rotate(-90 349.1 203.6)">A1</text>
+<circle cx="359.4" cy="207.0" r="4.3" fill="#b7950b"/>
+<text x="361.8" y="203.6" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#7d6608" text-anchor="start" font-weight="normal" transform="rotate(-90 361.8 203.6)">A2</text>
+<circle cx="384.8" cy="207.0" r="4.3" fill="#b7950b"/>
+<text x="387.2" y="203.6" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#7d6608" text-anchor="start" font-weight="normal" transform="rotate(-90 387.2 203.6)">B1</text>
+<circle cx="397.5" cy="207.0" r="4.3" fill="#b7950b"/>
+<text x="399.9" y="203.6" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#7d6608" text-anchor="start" font-weight="normal" transform="rotate(-90 399.9 203.6)">B2</text>
+<rect x="290.2" y="239.4" width="125.7" height="74.9" fill="#ffffff" stroke="#b7950b" stroke-width="1.2" rx="2" opacity="0.92"/>
+<text x="353.0" y="252.4" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#b7950b" text-anchor="middle" font-weight="bold">A4950 #2 双路</text>
+<text x="353.0" y="262.4" font-family="Helvetica,Arial,sans-serif" font-size="6.4" fill="#666" text-anchor="middle" font-weight="normal">M3 左后 / M4 右后</text>
+<circle cx="308.6" cy="321.3" r="4.3" fill="#b7950b"/>
+<text x="311.0" y="317.9" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#7d6608" text-anchor="start" font-weight="normal" transform="rotate(-90 311.0 317.9)">VM</text>
+<circle cx="321.3" cy="321.3" r="4.3" fill="#b7950b"/>
+<text x="323.7" y="317.9" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#7d6608" text-anchor="start" font-weight="normal" transform="rotate(-90 323.7 317.9)">GND</text>
+<circle cx="334.0" cy="321.3" r="4.3" fill="#b7950b"/>
+<text x="336.4" y="317.9" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#7d6608" text-anchor="start" font-weight="normal" transform="rotate(-90 336.4 317.9)">VCC</text>
+<circle cx="346.7" cy="321.3" r="4.3" fill="#b7950b"/>
+<text x="349.1" y="317.9" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#7d6608" text-anchor="start" font-weight="normal" transform="rotate(-90 349.1 317.9)">A1</text>
+<circle cx="359.4" cy="321.3" r="4.3" fill="#b7950b"/>
+<text x="361.8" y="317.9" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#7d6608" text-anchor="start" font-weight="normal" transform="rotate(-90 361.8 317.9)">A2</text>
+<circle cx="384.8" cy="321.3" r="4.3" fill="#b7950b"/>
+<text x="387.2" y="317.9" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#7d6608" text-anchor="start" font-weight="normal" transform="rotate(-90 387.2 317.9)">B1</text>
+<circle cx="397.5" cy="321.3" r="4.3" fill="#b7950b"/>
+<text x="399.9" y="317.9" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#7d6608" text-anchor="start" font-weight="normal" transform="rotate(-90 399.9 317.9)">B2</text>
+<line x1="308.6" y1="92.7" x2="308.6" y2="130.8" stroke="#c0392b" stroke-width="2.2" stroke-linecap="round"/>
+<circle cx="308.6" cy="130.8" r="2.6" fill="#c0392b"/>
+<line x1="308.6" y1="92.7" x2="308.6" y2="245.1" stroke="#c0392b" stroke-width="2.2" stroke-linecap="round"/>
+<circle cx="308.6" cy="245.1" r="2.6" fill="#c0392b"/>
+<text x="486.4" y="122.8" font-family="Helvetica,Arial,sans-serif" font-size="6.6" fill="#7d6608" text-anchor="start" font-weight="normal">电机端子 (贴右板边, 每路 2 位)</text>
+<circle cx="499.1" cy="130.8" r="4.3" fill="#7d6608"/>
+<text x="501.5" y="127.4" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#7d6608" text-anchor="start" font-weight="normal" transform="rotate(-90 501.5 127.4)">M1+</text>
+<circle cx="524.5" cy="130.8" r="4.3" fill="#7d6608"/>
+<text x="526.9" y="127.4" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#7d6608" text-anchor="start" font-weight="normal" transform="rotate(-90 526.9 127.4)">M1-</text>
+<rect x="492.7" y="124.4" width="38.1" height="12.7" fill="none" stroke="#7d6608"/>
+<circle cx="499.1" cy="168.9" r="4.3" fill="#7d6608"/>
+<text x="501.5" y="165.5" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#7d6608" text-anchor="start" font-weight="normal" transform="rotate(-90 501.5 165.5)">M2+</text>
+<circle cx="524.5" cy="168.9" r="4.3" fill="#7d6608"/>
+<text x="526.9" y="165.5" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#7d6608" text-anchor="start" font-weight="normal" transform="rotate(-90 526.9 165.5)">M2-</text>
+<rect x="492.7" y="162.5" width="38.1" height="12.7" fill="none" stroke="#7d6608"/>
+<circle cx="499.1" cy="245.1" r="4.3" fill="#7d6608"/>
+<text x="501.5" y="241.7" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#7d6608" text-anchor="start" font-weight="normal" transform="rotate(-90 501.5 241.7)">M3+</text>
+<circle cx="524.5" cy="245.1" r="4.3" fill="#7d6608"/>
+<text x="526.9" y="241.7" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#7d6608" text-anchor="start" font-weight="normal" transform="rotate(-90 526.9 241.7)">M3-</text>
+<rect x="492.7" y="238.8" width="38.1" height="12.7" fill="none" stroke="#7d6608"/>
+<circle cx="499.1" cy="283.2" r="4.3" fill="#7d6608"/>
+<text x="501.5" y="279.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#7d6608" text-anchor="start" font-weight="normal" transform="rotate(-90 501.5 279.8)">M4+</text>
+<circle cx="524.5" cy="283.2" r="4.3" fill="#7d6608"/>
+<text x="526.9" y="279.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#7d6608" text-anchor="start" font-weight="normal" transform="rotate(-90 526.9 279.8)">M4-</text>
+<rect x="492.7" y="276.8" width="38.1" height="12.7" fill="none" stroke="#7d6608"/>
+<rect x="99.1" y="441.9" width="330.2" height="88.9" fill="#eafaf1" stroke="#1e8449" stroke-width="1" rx="3" opacity="0.5"/>
+<text x="104.1" y="453.9" font-family="Helvetica,Arial,sans-serif" font-size="8.0" fill="#1e8449" text-anchor="start" font-weight="bold">④ 主控: ESP32-S3-DevKitC-1  2×22 排母座 (列序按本图; 焊装对照实板丝印)</text>
+<circle cx="118.1" cy="473.7" r="4.3" fill="#1e8449"/>
+<text x="120.5" y="470.3" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 120.5 470.3)">M1_PWM</text>
+<circle cx="130.8" cy="473.7" r="4.3" fill="#1e8449"/>
+<text x="133.2" y="470.3" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 133.2 470.3)">M1_DIR</text>
+<circle cx="143.5" cy="473.7" r="4.3" fill="#1e8449"/>
+<text x="145.9" y="470.3" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 145.9 470.3)">M2_PWM</text>
+<circle cx="156.2" cy="473.7" r="4.3" fill="#1e8449"/>
+<text x="158.6" y="470.3" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 158.6 470.3)">M2_DIR</text>
+<circle cx="168.9" cy="473.7" r="4.3" fill="#1e8449"/>
+<text x="171.3" y="470.3" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 171.3 470.3)">M3_PWM</text>
+<circle cx="181.6" cy="473.7" r="4.3" fill="#1e8449"/>
+<text x="184.0" y="470.3" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 184.0 470.3)">M3_DIR</text>
+<circle cx="194.3" cy="473.7" r="4.3" fill="#1e8449"/>
+<text x="196.7" y="470.3" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 196.7 470.3)">M4_PWM</text>
+<circle cx="207.0" cy="473.7" r="4.3" fill="#1e8449"/>
+<text x="209.4" y="470.3" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 209.4 470.3)">M4_DIR</text>
+<circle cx="219.7" cy="473.7" r="4.3" fill="#1e8449"/>
+<text x="222.1" y="470.3" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 222.1 470.3)">E1_A</text>
+<circle cx="232.4" cy="473.7" r="4.3" fill="#1e8449"/>
+<text x="234.8" y="470.3" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 234.8 470.3)">E1_B</text>
+<circle cx="245.1" cy="473.7" r="4.3" fill="#1e8449"/>
+<text x="247.5" y="470.3" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 247.5 470.3)">E2_A</text>
+<circle cx="257.8" cy="473.7" r="4.3" fill="#1e8449"/>
+<text x="260.2" y="470.3" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 260.2 470.3)">E2_B</text>
+<circle cx="270.5" cy="473.7" r="4.3" fill="#1e8449"/>
+<text x="272.9" y="470.3" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 272.9 470.3)">E3_A</text>
+<circle cx="283.2" cy="473.7" r="4.3" fill="#1e8449"/>
+<text x="285.6" y="470.3" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 285.6 470.3)">E3_B</text>
+<circle cx="295.9" cy="473.7" r="4.3" fill="#1e8449"/>
+<text x="298.3" y="470.3" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 298.3 470.3)">E4_A</text>
+<circle cx="308.6" cy="473.7" r="4.3" fill="#1e8449"/>
+<text x="311.0" y="470.3" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 311.0 470.3)">E4_B</text>
+<circle cx="321.3" cy="473.7" r="4.3" fill="#1e8449"/>
+<text x="323.7" y="470.3" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 323.7 470.3)">I2C_SDA</text>
+<circle cx="334.0" cy="473.7" r="4.3" fill="#1e8449"/>
+<text x="336.4" y="470.3" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 336.4 470.3)">I2C_SCL</text>
+<circle cx="346.7" cy="473.7" r="4.3" fill="#1e8449"/>
+<text x="349.1" y="470.3" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 349.1 470.3)">GIM_TX</text>
+<circle cx="359.4" cy="473.7" r="4.3" fill="#1e8449"/>
+<text x="361.8" y="470.3" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 361.8 470.3)">GIM_RX</text>
+<circle cx="372.1" cy="473.7" r="4.3" fill="#1e8449"/>
+<text x="374.5" y="470.3" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 374.5 470.3)">US_TRIG</text>
+<circle cx="384.8" cy="473.7" r="4.3" fill="#1e8449"/>
+<text x="387.2" y="470.3" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 387.2 470.3)">US_ECHO</text>
+<circle cx="118.1" cy="511.8" r="4.3" fill="#1e8449"/>
+<text x="120.5" y="508.4" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 120.5 508.4)">3V3</text>
+<circle cx="130.8" cy="511.8" r="4.3" fill="#1e8449"/>
+<text x="133.2" y="508.4" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 133.2 508.4)">3V3</text>
+<circle cx="143.5" cy="511.8" r="4.3" fill="#1e8449"/>
+<text x="145.9" y="508.4" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 145.9 508.4)">GND</text>
+<circle cx="156.2" cy="511.8" r="4.3" fill="#1e8449"/>
+<text x="158.6" y="508.4" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 158.6 508.4)">GND</text>
+<circle cx="168.9" cy="511.8" r="4.3" fill="#1e8449"/>
+<text x="171.3" y="508.4" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 171.3 508.4)">GND</text>
+<circle cx="181.6" cy="511.8" r="4.3" fill="#1e8449"/>
+<text x="184.0" y="508.4" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 184.0 508.4)">GND</text>
+<circle cx="194.3" cy="511.8" r="4.3" fill="#1e8449"/>
+<text x="196.7" y="508.4" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 196.7 508.4)">5V</text>
+<circle cx="207.0" cy="511.8" r="4.3" fill="#1e8449"/>
+<text x="209.4" y="508.4" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 209.4 508.4)">5V</text>
+<circle cx="219.7" cy="511.8" r="4.3" fill="#1e8449"/>
+<text x="222.1" y="508.4" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 222.1 508.4)">LED</text>
+<circle cx="232.4" cy="511.8" r="4.3" fill="#1e8449"/>
+<text x="234.8" y="508.4" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 234.8 508.4)">BTN</text>
+<circle cx="245.1" cy="511.8" r="4.3" fill="#1e8449"/>
+<text x="247.5" y="508.4" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 247.5 508.4)">BUZ</text>
+<circle cx="257.8" cy="511.8" r="4.3" fill="#1e8449"/>
+<text x="260.2" y="508.4" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 260.2 508.4)">—</text>
+<circle cx="270.5" cy="511.8" r="4.3" fill="#1e8449"/>
+<text x="272.9" y="508.4" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 272.9 508.4)">—</text>
+<circle cx="283.2" cy="511.8" r="4.3" fill="#1e8449"/>
+<text x="285.6" y="508.4" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 285.6 508.4)">—</text>
+<circle cx="295.9" cy="511.8" r="4.3" fill="#1e8449"/>
+<text x="298.3" y="508.4" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 298.3 508.4)">—</text>
+<circle cx="308.6" cy="511.8" r="4.3" fill="#1e8449"/>
+<text x="311.0" y="508.4" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 311.0 508.4)">—</text>
+<circle cx="321.3" cy="511.8" r="4.3" fill="#1e8449"/>
+<text x="323.7" y="508.4" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 323.7 508.4)">GND</text>
+<circle cx="334.0" cy="511.8" r="4.3" fill="#1e8449"/>
+<text x="336.4" y="508.4" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 336.4 508.4)">—</text>
+<circle cx="346.7" cy="511.8" r="4.3" fill="#1e8449"/>
+<text x="349.1" y="508.4" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 349.1 508.4)">—</text>
+<circle cx="359.4" cy="511.8" r="4.3" fill="#1e8449"/>
+<text x="361.8" y="508.4" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 361.8 508.4)">—</text>
+<circle cx="372.1" cy="511.8" r="4.3" fill="#1e8449"/>
+<text x="374.5" y="508.4" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 374.5 508.4)">—</text>
+<circle cx="384.8" cy="511.8" r="4.3" fill="#1e8449"/>
+<text x="387.2" y="508.4" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#0e5c31" text-anchor="start" font-weight="normal" transform="rotate(-90 387.2 508.4)">GND</text>
+<text x="105.4" y="439.6" font-family="Helvetica,Arial,sans-serif" font-size="6.2" fill="#0e5c31" text-anchor="start" font-weight="normal">上排 22 位 = 信号 (4 组编码器 / 4 路电机 / I2C / 云台 / 超声)</text>
+<text x="105.4" y="553.9" font-family="Helvetica,Arial,sans-serif" font-size="6.2" fill="#0e5c31" text-anchor="start" font-weight="normal">下排 22 位 = 电源 + LED/按钮/蜂鸣 (未用位留空)</text>
+<line x1="130.8" y1="511.8" x2="130.8" y2="651.5" stroke="#16a085" stroke-width="1.8" stroke-linecap="round"/>
+<text x="124.8" y="588.0" font-family="Helvetica,Arial,sans-serif" font-size="5.6" fill="#16a085" text-anchor="start" font-weight="normal" transform="rotate(-90 124.8 588.0)">3.3V → 编码器 VCC</text>
+<rect x="86.4" y="619.8" width="457.2" height="88.9" fill="#f4ecf7" stroke="#7d3c98" stroke-width="1" rx="3" opacity="0.5"/>
+<text x="91.4" y="631.8" font-family="Helvetica,Arial,sans-serif" font-size="8.0" fill="#7d3c98" text-anchor="start" font-weight="bold">⑤ 连接器排 (贴下板边: 插拔方便 + 扎带应力释放)</text>
+<text x="105.4" y="631.8" font-family="Helvetica,Arial,sans-serif" font-size="5.8" fill="#7d3c98" text-anchor="start" font-weight="normal">编码器1 JST-XH 4P</text>
+<circle cx="105.4" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="107.8" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 107.8 660.8)">V3V3</text>
+<circle cx="118.1" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="120.5" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 120.5 660.8)">GND</text>
+<circle cx="130.8" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="133.2" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 133.2 660.8)">A</text>
+<circle cx="143.5" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="145.9" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 145.9 660.8)">B</text>
+<rect x="99.1" y="657.9" width="50.8" height="12.7" fill="none" stroke="#7d3c98"/>
+<text x="168.9" y="631.8" font-family="Helvetica,Arial,sans-serif" font-size="5.8" fill="#7d3c98" text-anchor="start" font-weight="normal">编码器2</text>
+<circle cx="168.9" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="171.3" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 171.3 660.8)">V3V3</text>
+<circle cx="181.6" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="184.0" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 184.0 660.8)">GND</text>
+<circle cx="194.3" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="196.7" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 196.7 660.8)">A</text>
+<circle cx="207.0" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="209.4" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 209.4 660.8)">B</text>
+<rect x="162.5" y="657.9" width="50.8" height="12.7" fill="none" stroke="#7d3c98"/>
+<text x="232.4" y="631.8" font-family="Helvetica,Arial,sans-serif" font-size="5.8" fill="#7d3c98" text-anchor="start" font-weight="normal">编码器3</text>
+<circle cx="232.4" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="234.8" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 234.8 660.8)">V3V3</text>
+<circle cx="245.1" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="247.5" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 247.5 660.8)">GND</text>
+<circle cx="257.8" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="260.2" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 260.2 660.8)">A</text>
+<circle cx="270.5" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="272.9" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 272.9 660.8)">B</text>
+<rect x="226.1" y="657.9" width="50.8" height="12.7" fill="none" stroke="#7d3c98"/>
+<text x="295.9" y="631.8" font-family="Helvetica,Arial,sans-serif" font-size="5.8" fill="#7d3c98" text-anchor="start" font-weight="normal">编码器4</text>
+<circle cx="295.9" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="298.3" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 298.3 660.8)">V3V3</text>
+<circle cx="308.6" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="311.0" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 311.0 660.8)">GND</text>
+<circle cx="321.3" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="323.7" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 323.7 660.8)">A</text>
+<circle cx="334.0" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="336.4" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 336.4 660.8)">B</text>
+<rect x="289.5" y="657.9" width="50.8" height="12.7" fill="none" stroke="#7d3c98"/>
+<text x="372.1" y="631.8" font-family="Helvetica,Arial,sans-serif" font-size="5.8" fill="#7d3c98" text-anchor="start" font-weight="normal">云台总线 3P</text>
+<circle cx="372.1" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="374.5" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 374.5 660.8)">7V4</text>
+<circle cx="384.8" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="387.2" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 387.2 660.8)">GND</text>
+<circle cx="397.5" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="399.9" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 399.9 660.8)">DATA</text>
+<rect x="365.8" y="657.9" width="38.1" height="12.7" fill="none" stroke="#7d3c98"/>
+<text x="422.9" y="631.8" font-family="Helvetica,Arial,sans-serif" font-size="5.8" fill="#7d3c98" text-anchor="start" font-weight="normal">I2C 4P</text>
+<circle cx="422.9" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="425.3" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 425.3 660.8)">3V3</text>
+<circle cx="435.6" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="438.0" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 438.0 660.8)">GND</text>
+<circle cx="448.3" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="450.7" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 450.7 660.8)">SDA</text>
+<circle cx="461.0" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="463.4" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 463.4 660.8)">SCL</text>
+<rect x="416.6" y="657.9" width="50.8" height="12.7" fill="none" stroke="#7d3c98"/>
+<text x="486.4" y="631.8" font-family="Helvetica,Arial,sans-serif" font-size="5.8" fill="#7d3c98" text-anchor="start" font-weight="normal">超声波 4P</text>
+<circle cx="486.4" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="488.8" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 488.8 660.8)">5V</text>
+<circle cx="499.1" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="501.5" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 501.5 660.8)">GND</text>
+<circle cx="511.8" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="514.2" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 514.2 660.8)">TRIG</text>
+<circle cx="524.5" cy="664.2" r="4.3" fill="#7d3c98"/>
+<text x="526.9" y="660.8" font-family="Helvetica,Arial,sans-serif" font-size="5.0" fill="#5b2c6f" text-anchor="start" font-weight="normal" transform="rotate(-90 526.9 660.8)">ECHO</text>
+<rect x="480.0" y="657.9" width="50.8" height="12.7" fill="none" stroke="#7d3c98"/>
+<line x1="130.8" y1="664.2" x2="321.3" y2="664.2" stroke="#16a085" stroke-width="1.6" stroke-linecap="round"/>
+<text x="461.0" y="715.6" font-family="Helvetica,Arial,sans-serif" font-size="6.0" fill="#5b2c6f" text-anchor="start" font-weight="normal">分压 1k/2k 焊在超声 ECHO 位旁 (ECHO→1k→节点→2k→GND)</text>
+<text x="594.0" y="62.0" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#111" text-anchor="start" font-weight="bold">引脚 ↔ 信号 (§19.10.2)</text>
+<text x="594.0" y="84.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#111" text-anchor="start" font-weight="normal">M1 4/5</text>
+<text x="668.0" y="84.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#111" text-anchor="start" font-weight="normal">M2 6/7</text>
+<text x="742.0" y="84.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#111" text-anchor="start" font-weight="normal">M3 15/16</text>
+<text x="816.0" y="84.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#111" text-anchor="start" font-weight="normal">M4 17/18</text>
+<text x="594.0" y="98.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#111" text-anchor="start" font-weight="normal">E1 1/2</text>
+<text x="668.0" y="98.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#111" text-anchor="start" font-weight="normal">E2 11/12</text>
+<text x="742.0" y="98.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#111" text-anchor="start" font-weight="normal">E3 13/14</text>
+<text x="816.0" y="98.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#111" text-anchor="start" font-weight="normal">E4 38/39</text>
+<text x="594.0" y="112.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#111" text-anchor="start" font-weight="normal">I2C 8/9</text>
+<text x="668.0" y="112.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#111" text-anchor="start" font-weight="normal">云台 10/21</text>
+<text x="742.0" y="112.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#111" text-anchor="start" font-weight="normal">超声 47/48</text>
+<text x="816.0" y="112.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#111" text-anchor="start" font-weight="normal">备用 40/41/42</text>
+<text x="594.0" y="152.0" font-family="Helvetica,Arial,sans-serif" font-size="10" fill="#111" text-anchor="start" font-weight="bold">装配顺序 (§19.9.4)</text>
+<text x="594.0" y="167.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#333" text-anchor="start" font-weight="normal">1. 背面: GND 裸铜母线 + 12V 飞线</text>
+<text x="594.0" y="180.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#333" text-anchor="start" font-weight="normal">2. 矮件: 分压电阻 / 跳线</text>
+<text x="594.0" y="193.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#333" text-anchor="start" font-weight="normal">3. 排母座(S3) / 端子排 / JST 座</text>
+<text x="594.0" y="206.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#333" text-anchor="start" font-weight="normal">4. 高件: 电解电容 (极性!)</text>
+<text x="594.0" y="219.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#333" text-anchor="start" font-weight="normal">5. 走线 + 热缩 + 板边扎带 + 网管</text>
+<text x="594.0" y="232.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#333" text-anchor="start" font-weight="normal">6. 上电三查: 蜂鸣查短路→串保险→测三轨</text>
+<text x="594.0" y="262.0" font-family="Helvetica,Arial,sans-serif" font-size="9" fill="#111" text-anchor="start" font-weight="bold">配色</text>
+<rect x="594.0" y="272.0" width="10" height="8" fill="#c0392b"/>
+<text x="610.0" y="280.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#333" text-anchor="start" font-weight="normal">12V 域 / 电源入口</text>
+<rect x="594.0" y="285.0" width="10" height="8" fill="#2471a3"/>
+<text x="610.0" y="293.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#333" text-anchor="start" font-weight="normal">降压模块</text>
+<rect x="594.0" y="298.0" width="10" height="8" fill="#b7950b"/>
+<text x="610.0" y="306.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#333" text-anchor="start" font-weight="normal">驱动 / 电机</text>
+<rect x="594.0" y="311.0" width="10" height="8" fill="#1e8449"/>
+<text x="610.0" y="319.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#333" text-anchor="start" font-weight="normal">主控 S3</text>
+<rect x="594.0" y="324.0" width="10" height="8" fill="#7d3c98"/>
+<text x="610.0" y="332.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#333" text-anchor="start" font-weight="normal">连接器</text>
+<rect x="594.0" y="337.0" width="10" height="8" fill="#16a085"/>
+<text x="610.0" y="345.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#333" text-anchor="start" font-weight="normal">3.3V / 5V 支线</text>
+<rect x="594.0" y="350.0" width="10" height="8" fill="#e67e22"/>
+<text x="610.0" y="358.0" font-family="Helvetica,Arial,sans-serif" font-size="8" fill="#333" text-anchor="start" font-weight="normal">7.4V 云台轨</text>
+<text x="594.0" y="377.0" font-family="Helvetica,Arial,sans-serif" font-size="9" fill="#111" text-anchor="start" font-weight="bold">说明</text>
+<text x="594.0" y="391.0" font-family="Helvetica,Arial,sans-serif" font-size="7.4" fill="#555" text-anchor="start" font-weight="normal">· 每个实心圆都落在真实孔位上, 相邻孔距 2.54mm</text>
+<text x="594.0" y="403.0" font-family="Helvetica,Arial,sans-serif" font-size="7.4" fill="#555" text-anchor="start" font-weight="normal">· 行列号见板边标尺, 便于报位置/写装配笔记</text>
+<text x="594.0" y="415.0" font-family="Helvetica,Arial,sans-serif" font-size="7.4" fill="#555" text-anchor="start" font-weight="normal">· 排母座位置以实板丝印为准, 本图给列序</text>
+<text x="594.0" y="427.0" font-family="Helvetica,Arial,sans-serif" font-size="7.4" fill="#555" text-anchor="start" font-weight="normal">· 板背走线面朝车体内侧, 板下架尼龙柱 ≥5mm</text>
+</svg>

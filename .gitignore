@@ -33,3 +33,9 @@ shadow_carrier_on_rockchip/simulation/webots/worlds/._autotest*
 
 # Webots robustness test artifacts
 shadow_carrier_on_rockchip/simulation/webots/logs/
+
+# Agent session artifacts (local only)
+.zcode/
+
+# macOS AppleDouble files (Webots cp 出来的 ._* 资源叉)
+shadow_carrier_on_rockchip/simulation/webots/worlds/._*
