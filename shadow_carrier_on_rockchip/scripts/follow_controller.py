@@ -46,6 +46,8 @@ NEAR_STOP_M = 0.7      # dist_fn 给出的人-车距离 < 此值 → STOP(真实
 SLOW_BBOX_H = 340      # 框高≥此值 → 开始减速(无 dist_fn 时的兜底)
 STOP_BBOX_H = 400      # 框高≥此值 → 硬停(无 dist_fn 时的兜底)
 RESUME_BBOX_H = 370    # 框高回落至此值以下 → 恢复
+NEAR_GATE_OFFSET = 100 # 仅当人接近正前(offset≤此px, ≈11°)才做框高急停/减速——
+                       # passby 时人在侧边(框大但不是在车头)不能误停(2026-10-18 实测"转30°就停")
 
 H_CHANGE_LIMIT = 0.3
 
@@ -758,7 +760,7 @@ class FollowController:
         if _d is not None and _d < NEAR_STOP_M:            # 真实距离太近 → 停
             self.send_cmd("STOP")
             return "STOP", 0, self._info(offset)
-        if _d is None:                                      # 无距离源 → 框高兜底
+        if _d is None and abs_off <= NEAR_GATE_OFFSET:      # 无距离源 + 人在正前 → 框高兜底
             if self.sh >= STOP_BBOX_H:
                 self.too_close = True
             elif self.sh <= RESUME_BBOX_H:
@@ -772,7 +774,7 @@ class FollowController:
         if _d is not None and 0.4 < _d < 8.0:
             # 目标间距1.2m; 人远→快、人近→慢, 保守±30
             fwd = int(max(MIN_SPD, min(240, BASE_SPD + (_d - 1.2) * 30)))
-        elif _d is None and self.sh > SLOW_BBOX_H:
+        elif _d is None and abs_off <= NEAR_GATE_OFFSET and self.sh > SLOW_BBOX_H:
             # 框高减速兜底: 越近越慢(到 STOP_BBOX_H 已硬停)
             frac = min(1.0, (self.sh - SLOW_BBOX_H) / max(1.0, STOP_BBOX_H - SLOW_BBOX_H))
             fwd = int(max(MIN_SPD, BASE_SPD - frac * (BASE_SPD - MIN_SPD) * 0.6))
