@@ -32,8 +32,8 @@ YAW_K = 2.0           # dps → 轮速差 增益
 YAW_CORR_MAX = 12     # 单轮最大修正量
 YAW_DEAD = 1.5        # 死区(dps): 小于此值视为零偏噪声, 不修正 (治标定残差导致的持续偏航)
 
-BASE_SPD = 150        # 基准前进速度 (100→130→150; 量程255; 载物盒后按扭矩/电压实测再定)
-MIN_SPD = 80          # 最小轮速 (60→80, 离开固件PWM<50死区)
+BASE_SPD = 220        # 基准前进速度 (100→130→150→220; 对齐手动 240; 载物盒后按扭矩/电压实测)
+MIN_SPD = 120         # 最小轮速 (60→80→120; 载物盒后内轮太慢会带不动/转不动)
 MAX_OFFSET = 200       # 偏移饱和点
 
 TARGET_BBOX_H = 400
@@ -80,7 +80,7 @@ TURN_ENABLED = False     # 总开关: 仿真验证通过后置 True 逐步启用
 PIVOT_ENTER_DEG = 30.0   # E2 兜底入口: |θ|≥此值持续 PIVOT_ENTER_S
 PIVOT_ENTER_S = 0.3
 PIVOT_EXIT_DEG = 15.0    # 退出口(与入口构成 2:1 迟滞; 参照 Nav2 RotationShim 45/22.5)
-PIVOT_PWM = 110          # MOVE L/R 速度 (>PWM50 电机死区; 角速度待 pivot_calib 实测)
+PIVOT_PWM = 190          # MOVE L/R 速度 (110→190; 载物盒后原地转需更大扭矩; 角速度待 pivot_calib)
 PIVOT_DWELL_S = 0.25     # 模式/方向最小驻留(防抖)
 PIVOT_BUDGET_DEG = 180.0 # TURN 相(人可见)的角度预算(超 → 停下等待)
 PIVOT_BLIND_MAX_DEG = 60.0   # BLIND 相的角度上限: 失明期 θ̇ 会冻结(无新量测), 若按陈旧
@@ -771,7 +771,7 @@ class FollowController:
         fwd = BASE_SPD
         if _d is not None and 0.4 < _d < 8.0:
             # 目标间距1.2m; 人远→快、人近→慢, 保守±30
-            fwd = int(max(MIN_SPD, min(160, BASE_SPD + (_d - 1.2) * 30)))
+            fwd = int(max(MIN_SPD, min(240, BASE_SPD + (_d - 1.2) * 30)))
         elif _d is None and self.sh > SLOW_BBOX_H:
             # 框高减速兜底: 越近越慢(到 STOP_BBOX_H 已硬停)
             frac = min(1.0, (self.sh - SLOW_BBOX_H) / max(1.0, STOP_BBOX_H - SLOW_BBOX_H))

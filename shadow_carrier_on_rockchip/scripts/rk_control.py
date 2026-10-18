@@ -110,7 +110,7 @@ def _read_yaw():
 # ====== 手动航向保持 (2026-10-18) ======
 # 遥控只按前进时开环会持续偏航; 用 IMU yaw 做直线保持(替代固定 MOVE F)。
 # 按左/右/停 → 取消保持; 下次前进重新取目标。
-MANUAL_FWD_SPD = 220     # 手动前进速度(180→220; 量程255)
+MANUAL_FWD_SPD = 240     # 手动前进速度(180→220→240; 量程255; 载物盒后按扭矩/电压实测)
 MH_K = 3.0               # yaw 误差(度) → 轮速差 增益
 MH_CORR_MAX = 30         # 单轮最大修正
 _mh_target = None        # 手动航向保持目标(无界 yaw_deg 的原始值)
@@ -656,8 +656,8 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 self.send_response(400); self._text('BAD')
                 return
-        r = {'/forward':None, '/back':'MOVE B 180', '/left':'MOVE L 150',
-             '/right':'MOVE R 150', '/stop':'STOP'}
+        r = {'/forward':None, '/back':'MOVE B 240', '/left':'MOVE L 190',
+             '/right':'MOVE R 190', '/stop':'STOP'}
         if self.path in r:
             # 服务端门禁(2026-10-16): 跟随时底盘归 follow 循环独占, 面板/curl 误触会抢控制。
             # /stop 例外 —— 任何模式下都必须能急停。

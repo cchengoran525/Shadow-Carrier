@@ -102,7 +102,7 @@ for cx in range(100, 541, 20):
     if cmd and cmd.startswith("DIFF"):
         vals += [int(t[1:]) for t in cmd.split()[1:]]
 assert min(vals) > 50, f"轮速落入固件PWM死区: min={min(vals)}"
-assert max(vals) <= 160, f"轮速过高: max={max(vals)}"
+assert max(vals) <= 255, f"轮速过高: max={max(vals)}"
 assert m.LOST_TIMEOUT_S == 2.4 and m.SEARCH_BACK_S == 1.2 and m.LOW_STREAK_S == 3.2
 c = m.FollowController(lambda cc: None, person_provider=lambda: None); c.running = True
 cur["box"] = None; marks = {}; t = 0.0
@@ -111,7 +111,7 @@ for i in range(1, 61):
     _tg, _v, info = c.tick(); t += 0.3
     marks.setdefault(info.get("state"), round(t, 2))
 assert marks.get("lost_stop") == 2.4, f"3.3Hz下丢失超时应为2.4s, 实际{marks.get('lost_stop')}"
-print(f"  [PASS] 轮速区间 {min(vals)}~{max(vals)} (>50 且 <=160)")
+print(f"  [PASS] 轮速区间 {min(vals)}~{max(vals)} (>50 且 <=255)")
 print(f"  [PASS] 丢失超时环率无关 = {marks.get('lost_stop')}s (10Hz与3.3Hz一致)")
 _cn, _ = settle(cx=320, dist=0.5, ticks=6)
 assert _cn == "STOP", f"dist<NEAR_STOP_M 应 STOP, 实际{_cn}"
