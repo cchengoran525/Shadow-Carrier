@@ -107,6 +107,35 @@ def _read_yaw():
     except Exception:
         return None
 
+# ====== 手动航向保持 (2026-10-18) ======
+# 遥控只按前进时开环会持续偏航; 用 IMU yaw 做直线保持(替代固定 MOVE F)。
+# 按左/右/停 → 取消保持; 下次前进重新取目标。
+MANUAL_FWD_SPD = 220     # 手动前进速度(180→220; 量程255)
+MH_K = 3.0               # yaw 误差(度) → 轮速差 增益
+MH_CORR_MAX = 30         # 单轮最大修正
+_mh_target = None        # 手动航向保持目标(无界 yaw_deg 的原始值)
+
+def _wrap180(a):
+    return (a + 180.0) % 360.0 - 180.0
+
+def _manual_reset():
+    global _mh_target
+    _mh_target = None
+
+def _manual_forward():
+    """遥控前进 + IMU 直线保持: DIFF 微差修正航向; IMU 不可用则退固定 MOVE F。"""
+    global _mh_target
+    y = _read_yaw()
+    if y is None:
+        return uart_send(f"MOVE F {MANUAL_FWD_SPD}")
+    if _mh_target is None:
+        _mh_target = y
+    err = _wrap180(_mh_target - y)          # >0 需左转(逆时针)
+    corr = max(-MH_CORR_MAX, min(MH_CORR_MAX, MH_K * err))
+    l = int(max(0, min(255, MANUAL_FWD_SPD - corr)))
+    r = int(max(0, min(255, MANUAL_FWD_SPD + corr)))
+    return uart_send(f"DIFF L{l} R{r}")
+
 def _turn_worker(deg, spd, pivot=False):
     y0 = _read_yaw()
     t0 = time.monotonic()
@@ -627,14 +656,21 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 self.send_response(400); self._text('BAD')
                 return
-        r = {'/forward':'MOVE F 180','/back':'MOVE B 180','/left':'MOVE L 150','/right':'MOVE R 150','/stop':'STOP'}
+        r = {'/forward':None, '/back':'MOVE B 180', '/left':'MOVE L 150',
+             '/right':'MOVE R 150', '/stop':'STOP'}
         if self.path in r:
             # 服务端门禁(2026-10-16): 跟随时底盘归 follow 循环独占, 面板/curl 误触会抢控制。
             # /stop 例外 —— 任何模式下都必须能急停。
             if self.path != "/stop" and _get_mode() != "manual":
                 self._json({"ok": False, "error": "follow mode: 手动运动端点已锁"})
                 return
-            self._text("OK" if uart_send(r[self.path]) else "FAIL")
+            if self.path == '/forward':
+                _manual_forward()            # IMU 直线保持(替代固定 MOVE F)
+            else:
+                if self.path in ('/back', '/left', '/right', '/stop'):
+                    _manual_reset()          # 转向/停/后退 → 取消航向保持
+                uart_send(r[self.path])
+            self._text("OK")
         elif self.path == '/mode/manual':
             _stop_follow()
             self._json({"mode": "manual"})
