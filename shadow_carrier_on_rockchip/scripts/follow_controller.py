@@ -48,8 +48,16 @@ STOP_BBOX_H = 400      # 框高≥此值 → 硬停(无 dist_fn 时的兜底)
 RESUME_BBOX_H = 370    # 框高回落至此值以下 → 恢复
 NEAR_GATE_OFFSET = 100 # 仅当人接近正前(offset≤此px, ≈11°)才做框高急停/减速——
                        # passby 时人在侧边(框大但不是在车头)不能误停(2026-10-18 实测"转30°就停")
+# ===== 速度门 (2026-10-19): |offset| 越大越慢 =====
+# 依据: BASE_SPD 上调到 220(≈0.86 m/s)后制动距离 ≈ v·t_react + v²/2a ≈ 0.9m; 而"人很近但
+# 不在正前"时两个近距信号都不可用 —— 框高在 ~2.2m 内饱和(1m 与 2m 同高), 脚底地面测距在
+# <1.58m 已出画(见 state/range_from_box.py)。唯一可靠代理是**方位角**: 人越靠边, 车离他
+# 越近, 于是把前向速度按 |offset| 线性压低(正前 11° 内不受影响, 到 30° 保留 55%)。
+PIVOT_ENTER_PX = 290   # ≈30° (=FX·tan30°), 与 PIVOT_ENTER_DEG 对齐(超过它走转向通道)
+V_GATE_DROP = 0.45     # 到 PIVOT_ENTER_PX 时的前向速度降幅
 
 H_CHANGE_LIMIT = 0.3
+H_CHANGE_CONFIRM_N = 3   # 高度突变持续多少拍才算"真实远近变化"(10Hz → 0.3s); 否则按单帧异常忽略
 
 CYCLE_S = 0.1         # 名义控制周期(仅实机路径参考; 判定逻辑按实测dt计时, 不依赖环率)
 # 以下阈值一律用"秒": 实机10Hz / 仿真0.3s / 任意环率下行为一致
@@ -83,6 +91,10 @@ PIVOT_ENTER_DEG = 30.0   # E2 兜底入口: |θ|≥此值持续 PIVOT_ENTER_S
 PIVOT_ENTER_S = 0.3
 PIVOT_EXIT_DEG = 15.0    # 退出口(与入口构成 2:1 迟滞; 参照 Nav2 RotationShim 45/22.5)
 PIVOT_PWM = 190          # MOVE L/R 速度 (110→190; 载物盒后原地转需更大扭矩; 角速度待 pivot_calib)
+# 原地转的标称角速度(°/s): 190 PWM 在仿真运动学下 ≈174°/s。实机由 scripts/pivot_calib.py
+# 实测覆盖。用途: 把"角度预算"翻译成"时间预算"(盲转 60°≈0.34s; 扫描 90° 一档≈0.52s),
+# 让 测试/仿真/生产 共用同一口径。改 PIVOT_PWM 或换底盘(麦轮/编码器)都要重跑标定并改这里。
+PIVOT_RATE_DPS = 174.0
 PIVOT_DWELL_S = 0.25     # 模式/方向最小驻留(防抖)
 PIVOT_BUDGET_DEG = 180.0 # TURN 相(人可见)的角度预算(超 → 停下等待)
 PIVOT_BLIND_MAX_DEG = 60.0   # BLIND 相的角度上限: 失明期 θ̇ 会冻结(无新量测), 若按陈旧
@@ -212,6 +224,7 @@ class FollowController:
         self._step_deg = 0.0     # 本档已转角度(搜索分档)
         self._searched_at = 0.0  # 上次扫描用尽时刻(抑制"扫完又后退搜索")
         self._turn_domain = False   # tick(turn_only=True): 停驻域(HIDE/WAIT)只做有界转向
+        self._h_jump = 0         # 框高突变确认计数(见 H_CHANGE_CONFIRM_N)
 
     def start(self):
         """启动跟随; 仿真注入目标检测，实机必须通过 owner_id 认主。"""
@@ -515,7 +528,9 @@ class FollowController:
         self._turn_deg = 0.0
         self._step_deg = 0.0
         self._turn_last_yaw = self._yaw_deg()
-        self._last_dir_t = 0.0
+        # 2026-10-19 修: 原来把 _last_dir_t 归零(等价"驻留早已满足") → 进入后的**下一拍**
+        # 就能立刻翻向(实测 0.1s 一翻)。改为: 先清 turn_dir 让初次设定生效, 驻留从进入时刻起算。
+        self.turn_dir = None
         self._set_turn_dir(d, now)
         print(f"[follow] 转向通道进入 {self.phase} dir={d} "
               f"theta={None if self._theta is None else round(self._theta, 1)}°")
@@ -607,7 +622,8 @@ class FollowController:
             self._last_strong_t = now
             self._kf_feed(person, now)
             self._reacq_hits = min(self._reacq_hits + 1, 5)
-            if self._theta is not None and abs(self._theta) >= EDGE_DEG:
+            _th_raw = self._theta_ctl()
+            if _th_raw is not None and abs(_th_raw) >= EDGE_DEG:
                 self._exit_sign = self._dir_of_theta()   # 贴边→记出画侧(供搜索)
                 self._exit_t = now
         else:
@@ -616,7 +632,10 @@ class FollowController:
         # ---- 已在原地转 ----
         if self.phase == "TURN":
             if person is not None:
-                if (self._theta is not None and abs(self._theta) <= PIVOT_EXIT_DEG
+                # 退出判据用**原始量测**: 原地转时 KF 的卡方门会整帧拒绝 → θ 冻结
+                # (2026-10-19 实测: 174°/s 下 KF θ 冻在 31°, 真值已回 10° → 永不退出)
+                _th_exit = self._theta_ctl()
+                if (_th_exit is not None and abs(_th_exit) <= PIVOT_EXIT_DEG
                         and (now - self._turn_started) >= PIVOT_DWELL_S):
                     self._phase_track(now, "aligned")    # 回锥内 → 本拍即交回弧线
                     return None
@@ -736,9 +755,20 @@ class FollowController:
         else:
             h_change = abs(raw_h - self.sh) / self.sh if self.sh > 0 else 0
             if h_change < H_CHANGE_LIMIT:
+                self._h_jump = 0
                 self.scx = _a * raw_cx + (1 - _a) * self.scx
                 self.scy = _a * person["cy"] + (1 - _a) * self.scy
                 self.sh  = _a * raw_h + (1 - _a) * self.sh
+            else:
+                # 高度突变门(治弯腰/蹲下的单帧异常)。2026-10-19 审查修的 bug:
+                # 原实现直接跳过整帧更新 → 而"人走近"是**持续**的高度变化(300→450 恒 >30%),
+                # sh 不动 → 条件永远成立 → EMA **永久冻结**(scx/sh 再不更新, 车保持旧方向)。
+                # 改为: 连续 H_CHANGE_CONFIRM_N 拍都在新水平附近 → 视为真实远近变化, 重新播种。
+                self._h_jump = getattr(self, "_h_jump", 0) + 1
+                if self._h_jump >= H_CHANGE_CONFIRM_N:
+                    self.scx, self.scy, self.sh = raw_cx, person["cy"], raw_h
+                    self._h_jump = 0
+                    print(f"[follow] 框高持续变化 → 重新播种 scx={raw_cx:.0f} h={raw_h:.0f}")
 
         offset = self.scx - FCX
         # 云台解耦: 世界方位角→等效像素偏差 (FX≈508 来自 state/calib/params.py)
@@ -778,6 +808,12 @@ class FollowController:
             # 框高减速兜底: 越近越慢(到 STOP_BBOX_H 已硬停)
             frac = min(1.0, (self.sh - SLOW_BBOX_H) / max(1.0, STOP_BBOX_H - SLOW_BBOX_H))
             fwd = int(max(MIN_SPD, BASE_SPD - frac * (BASE_SPD - MIN_SPD) * 0.6))
+        # 速度门: 人越靠边越慢(正前 11° 内不生效, 30° 时保留 55%) —— 近距 off-axis 的唯一
+        # 可靠代理(见 PIVOT_ENTER_PX 上方的依据); 正前直行段完全不受影响。
+        if abs_off > NEAR_GATE_OFFSET:
+            _vg = min(1.0, (abs_off - NEAR_GATE_OFFSET)
+                      / max(1.0, float(PIVOT_ENTER_PX - NEAR_GATE_OFFSET)))
+            fwd = int(max(MIN_SPD, round(fwd * (1.0 - V_GATE_DROP * _vg))))
         if abs_off <= DIR_DEADBAND:
             # 直走 + 航向闭环(IMU): 压住开环走歪
             left = right = fwd

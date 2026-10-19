@@ -101,8 +101,13 @@ for cx in range(100, 541, 20):
     cmd, _ = settle(cx=cx, ticks=10)
     if cmd and cmd.startswith("DIFF"):
         vals += [int(t[1:]) for t in cmd.split()[1:]]
-assert min(vals) > 50, f"轮速落入固件PWM死区: min={min(vals)}"
-assert max(vals) <= 255, f"轮速过高: max={max(vals)}"
+# 2026-10-19: 原断言是 max<=160; 速度上调(220/120)时被放宽成 <=255 —— 那等于护栏失效。
+# 改写成有意义的包络: 外轮不超过 BASE_SPD、内轮不低于 MIN_SPD、常量自身留量程余量。
+assert min(vals) >= m.MIN_SPD, f"内轮低于 MIN_SPD: min={min(vals)}"
+assert max(vals) <= m.BASE_SPD, f"外轮超过 BASE_SPD: max={max(vals)}"
+assert m.BASE_SPD < 255, "BASE_SPD 应留量程余量(别顶满 255)"
+assert m.MIN_SPD > 50, "MIN_SPD 应在固件死区(PWM<50)之上"
+assert m.BASE_SPD - m.MIN_SPD <= 120, f"弧线差速过大(转向过猛): {m.BASE_SPD - m.MIN_SPD}"
 assert m.LOST_TIMEOUT_S == 2.4 and m.SEARCH_BACK_S == 1.2 and m.LOW_STREAK_S == 3.2
 c = m.FollowController(lambda cc: None, person_provider=lambda: None); c.running = True
 cur["box"] = None; marks = {}; t = 0.0
@@ -111,11 +116,47 @@ for i in range(1, 61):
     _tg, _v, info = c.tick(); t += 0.3
     marks.setdefault(info.get("state"), round(t, 2))
 assert marks.get("lost_stop") == 2.4, f"3.3Hz下丢失超时应为2.4s, 实际{marks.get('lost_stop')}"
-print(f"  [PASS] 轮速区间 {min(vals)}~{max(vals)} (>50 且 <=255)")
+print(f"  [PASS] 轮速包络 {min(vals)}~{max(vals)} (MIN≤·≤BASE={m.BASE_SPD}, 差速≤120)")
 print(f"  [PASS] 丢失超时环率无关 = {marks.get('lost_stop')}s (10Hz与3.3Hz一致)")
 _cn, _ = settle(cx=320, dist=0.5, ticks=6)
 assert _cn == "STOP", f"dist<NEAR_STOP_M 应 STOP, 实际{_cn}"
 _cf, _ = settle(cx=320, dist=1.0, ticks=6)
 assert _cf and _cf.startswith("DIFF"), f"dist>=NEAR_STOP_M 应走, 实际{_cf}"
 print(f"  [PASS] 近距急停(距离): dist0.5→{_cn}, dist1.0→{_cf}")
+
+print("\n== 速度门 + 近距门的分工 (2026-10-19) ==")
+_off = m.NEAR_GATE_OFFSET
+_front, _ = settle(cx=320 + 50, ticks=8)                    # 正前(死区外一点)
+assert _front == f"DIFF L{m.BASE_SPD} R{m.BASE_SPD}", f"正前应全速直行: {_front}"
+_side, _ = settle(cx=320 + _off + 130, ticks=10)            # ≈24°: 速度门生效
+_side_max = max(int(t[1:]) for t in _side.split()[1:]) if _side.startswith("DIFF") else None
+assert _side_max is not None and _side_max < m.BASE_SPD, f"侧前未降速: {_side}"
+assert _side_max >= m.MIN_SPD, f"侧前降过头: {_side}"
+print(f"  [PASS] 速度门: 正前 {_front} → 侧前(≈24°) {_side} (外轮 < BASE)")
+# 距离源存在时: 任意方位角都能急停(dist_fn 路径不受 offset 门限制)
+_stop_d, _ = settle(cx=320 + _off + 130, dist=0.5, ticks=6)
+assert _stop_d == "STOP", f"有距离源时侧前 <0.7m 应 STOP, 实际 {_stop_d}"
+print(f"  [PASS] dist_fn 路径覆盖任意方位角: 侧前 dist=0.5 → {_stop_d}")
+# 无距离源时: 框高门只在正前锥生效(passby 不在正前时不能误停)
+_side_h, _ = settle(cx=320 + 230, h=450, ticks=8)
+assert _side_h and _side_h.startswith("DIFF"), f"侧前大框不应触发框高急停: {_side_h}"
+_front_h, _ = settle(cx=320 + 50, h=450, ticks=8)
+assert _front_h == "STOP", f"正前大框应触发框高急停: {_front_h}"
+print(f"  [PASS] 框高门只认正前: 侧前 → {_side_h}, 正前 → {_front_h}")
+
+print("\n== 框高突变门: 单帧异常忽略 / 持续变化重播种 (2026-10-19 修 bug) ==")
+fc.dist_fn = None
+cur["box"] = {"cx": 320, "cy": 240, "h": 300}
+for _ in range(6):
+    tick_fc(fc)
+_sh0 = fc.sh
+cur["box"] = {"cx": 150, "cy": 240, "h": 470}      # 单帧大跳(弯腰/蹲下那种)
+tick_fc(fc)
+assert abs(fc.sh - _sh0) < 1e-6, f"单帧高度突跳不应改变平滑值: {fc.sh} vs {_sh0}"
+for _ in range(2):                                  # 连续第 3 拍 → 视为真实远近变化
+    tick_fc(fc)
+assert abs(fc.sh - 470) < 1e-6, f"持续高度变化应重播种, sh={fc.sh}"
+assert abs(fc.scx - 150) < 1e-6, f"重播种应同时更新 scx, scx={fc.scx}"
+print(f"  [PASS] 单帧跳变保持 {_sh0:.0f}; 持续 3 拍重播种 → scx={fc.scx:.0f} sh={fc.sh:.0f}")
+
 print("  全部断言通过")

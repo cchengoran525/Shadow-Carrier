@@ -8,12 +8,16 @@ BAUD = 115200
 VIDEO_PORT = 8080
 CONTROL_PORT = 80
 HRI_STATE = "/dev/shm/hri_state.json"   # HRI 发布: 停驻域判断(WAIT/HIDE) → tick(turn_only)
+OWNER_JSON = "/dev/shm/owner.json"      # follow 发布(只含已过换人确认门的主人框)
+OWNER_DIST_MAX_AGE_S = 0.6              # 距离环允许的 owner.json 年龄
+IMU_JSON = "/dev/shm/imu.json"          # imu.service 产出 (yaw_deg / yaw_rate_dps)
 
 
-def _hri_parked(max_age=0.5):
-    """HRI 是否处于停驻域(车已停好, 只应做有界转头接人)。文件缺失/过期 → False(走完整跟随)。"""
+def _hri_parked(max_age=0.5, path=None):
+    """HRI 是否处于停驻域(车已停好, 只应做有界转头接人)。文件缺失/过期 → False(走完整跟随)。
+    path: 仅测试注入用(默认 HRI_STATE)。"""
     try:
-        with open(HRI_STATE) as f:
+        with open(path or HRI_STATE) as f:
             o = json.load(f)
         return (time.time() - o.get("ts", 0)) < max_age and bool(o.get("parked"))
     except (OSError, ValueError):
@@ -34,6 +38,12 @@ try:
 except Exception:
     TILT_LEVEL_CMD = 112.0    # 兜底: 标定文件缺失时的实测值
     PAN_FORWARD_CMD = 90.58
+try:
+    # 单目地面几何测距 (2026-10-19): bbox 底边 → 地面距离, 走 follow 的 dist_fn 注入口。
+    # 有效区间 ≈1.6–6m; 更近时脚已出画 → 返回 None(退回框高兜底 + follow 的速度门)。
+    from range_from_box import ground_distance_m as _ground_distance_m
+except Exception:
+    _ground_distance_m = None
 CONF_MIN = 0.5               # 与[认主]对齐
 
 # 最近一次云台指令 (供步进斜坡的起步点; 所有 pan/tilt 写入都经 gimbal_send 更新)
@@ -62,11 +72,11 @@ obs_lock = threading.Lock()
 # 转向够用; 云台 demo 期冻结。若将来要接线: 用 theta=(gaze.pan-PAN_FORWARD)-u_to_bearing(u),
 # 且先跑 test_bearing_convention.py。
 
-def _get_yaw_rate():
-    """读 /dev/shm/imu.json 的 yaw_rate_dps (imu.service产出)。
-    数据过期(>0.5s)或质量差 → None (follow退回开环, 安全网)"""
+def _get_yaw_rate(path=None):
+    """读 imu.json 的 yaw_rate_dps (imu.service产出)。
+    数据过期(>0.5s)或质量差 → None (follow退回开环, 安全网)。path: 仅测试注入用。"""
     try:
-        with open("/dev/shm/imu.json") as f:
+        with open(path or IMU_JSON) as f:
             d = json.load(f)
         if time.monotonic() - float(d.get("ts", 0)) > 0.5:
             return None
@@ -94,10 +104,11 @@ TURN_TOL_DEG = 3.0      # 到位判定
 TURN_TIMEOUT_S = 10.0   # 超时保护
 TURN_DIFF = 40          # 转向差速量
 
-def _read_yaw():
-    """读积分航向 yaw_deg (逆时针为正); 过期/无效返回 None"""
+def _read_yaw(path=None):
+    """读积分航向 yaw_deg (逆时针为正); 过期/无效返回 None。
+    path: 仅测试注入用(默认 IMU_JSON)。"""
     try:
-        with open("/dev/shm/imu.json") as f:
+        with open(path or IMU_JSON) as f:
             d = json.load(f)
         if time.monotonic() - float(d.get("ts", 0)) > 0.5:
             return None
@@ -122,19 +133,21 @@ def _manual_reset():
     global _mh_target
     _mh_target = None
 
-def _manual_forward():
-    """遥控前进 + IMU 直线保持: DIFF 微差修正航向; IMU 不可用则退固定 MOVE F。"""
+def _manual_forward(send=None, yaw_fn=None):
+    """遥控前进 + IMU 直线保持: DIFF 微差修正航向; IMU 不可用则退固定 MOVE F。
+    send/yaw_fn: 仅测试注入用(默认 uart_send / _read_yaw)。"""
     global _mh_target
-    y = _read_yaw()
+    send = send or uart_send
+    y = (yaw_fn or _read_yaw)()
     if y is None:
-        return uart_send(f"MOVE F {MANUAL_FWD_SPD}")
+        return send(f"MOVE F {MANUAL_FWD_SPD}")
     if _mh_target is None:
         _mh_target = y
     err = _wrap180(_mh_target - y)          # >0 需左转(逆时针)
     corr = max(-MH_CORR_MAX, min(MH_CORR_MAX, MH_K * err))
     l = int(max(0, min(255, MANUAL_FWD_SPD - corr)))
     r = int(max(0, min(255, MANUAL_FWD_SPD + corr)))
-    return uart_send(f"DIFF L{l} R{r}")
+    return send(f"DIFF L{l} R{r}")
 
 def _turn_worker(deg, spd, pivot=False):
     y0 = _read_yaw()
@@ -388,6 +401,21 @@ def _weak_cue():
     except Exception:
         return None
 
+def _get_owner_dist():
+    """主人到车的地面距离(m) —— follow 的 dist_fn 注入。
+    数据源: follow 自己发布的 /dev/shm/owner.json(只含已过换人确认门的框) + 地面几何。
+    返回 None 的情形(调用方自动退回框高兜底): 无文件/过期/底边被裁(<1.58m)/几何不可解。"""
+    if _ground_distance_m is None:
+        return None
+    try:
+        with open(OWNER_JSON) as f:
+            o = json.load(f)
+        if time.time() - float(o.get("ts", 0)) > OWNER_DIST_MAX_AGE_S:
+            return None
+        return _ground_distance_m(float(o["bbox"][3]), frame_h=480.0)
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
 def _follow_loop():
     global fc
     try:
@@ -395,7 +423,8 @@ def _follow_loop():
         fc = FollowController(uart_send, yaw_rate_fn=_get_yaw_rate,
                               yaw_deg_fn=_read_yaw,    # 转向通道: 死推算/到位判据
                               obs_fn=_get_obs,         # 转向通道: 受阻否决
-                              weak_cue_fn=_weak_cue)   # 转向通道: 人只剩腿时的方向权重
+                              weak_cue_fn=_weak_cue,   # 转向通道: 人只剩腿时的方向权重
+                              dist_fn=_get_owner_dist) # 距离环: 地面几何测距(替代框高)
         if not fc.start():
             # 机主原则: 认主失败拒绝跟随, 模式退回手动(凝视线随之退出)
             print("[follow] 认主失败, 跟随未启动")

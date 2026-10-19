@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
-"""pivot_calib.py — 原地转角速度标定 + 符号约定核对 (实机, 约 3 分钟)
+"""pivot_calib.py — 实机标定一条龙: 一次跑出四个数 (2026-10-19 扩展)
 
-为什么需要: follow_controller 的底盘转向通道里, PIVOT_PWM / TTE 阈值 / 扫描驻留都建立在
-"PWM → 原地转角速度(°/s)"这条曲线上; 仿真与实机的轮径/摩擦/电压都不同, 必须实测。
-另外 θ(方位角) 的左右符号链历史上出过事故(2026-10-14 审计), 这里给一次人机可判的核对。
+四件事:
+  A. 原地转 PWM → °/s (默认档 120/150/190/230, 覆盖 MIN_SPD 与 PIVOT_PWM)
+  B. 弧线 (DIFF 快/慢) 的实测角速度 —— 校核 BASE_SPD/MIN_SPD 的真实差速
+  C. 满 PWM 地面速度 v_at_spd_max (直行 N 秒 + 人工量距离; 写 configs/lidar_guard.json)
+  D. IMU 符号核对 (MOVE L 应使 yaw 增大) + θ 左右符号的人工核对 (云台冻结 → 相机=车体)
+输出: calib.json + "写回清单"(要改哪几个常量)
 
-⚠️ 安全: 本脚本直接开串口发 MOVE L/R(绕过 rk_control), 车会原地转。
-   先把 rk_control 切手动(或停跟随), 车放空旷地面(四周 ≥1m), 人不要站在转动半径内。
+为什么需要: follow 的 PIVOT_RATE_DPS / TTE 阈值 / 扫描节奏 / 雷达间隙律, 全建在这四个数上;
+仿真与实机的轮径/摩擦/电压都不同。θ 的符号链历史上出过事故(2026-10-14 审计), 这里给一次
+人机可判的核对。
+
+⚠️ 安全: 本脚本直接开串口发 MOVE L/R 与 MOVE F(绕过 rk_control), 车会动。
+   先把 rk_control 切手动(或停跟随), 车放空旷地面(四周 ≥1m), 人不要站在转动/直行路径上。
 
 用法:
-  python3 pivot_calib.py --yes                  # 测 80/110/140 三档 + 符号核对
-  python3 pivot_calib.py --yes --secs 1.5       # 每档时长
-  python3 pivot_calib.py --check-only           # 只做符号/IMU 核对, 不动电机
+  python3 pivot_calib.py --yes                      # 全量(默认 4 档原地转 + 弧线 + 询问直行距离)
+  python3 pivot_calib.py --yes --vmax-dist 2.4      # 直行距离直接给, 非交互
+  python3 pivot_calib.py --check-only               # 只做符号/IMU 核对, 不动电机
 """
 import argparse
 import json
@@ -122,7 +129,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", default=PORT)
     ap.add_argument("--secs", type=float, default=1.2, help="每档持续时长(秒)")
-    ap.add_argument("--pwms", default="80,110,140")
+    ap.add_argument("--pwms", default="120,150,190,230",
+                    help="原地转 PWM 档(默认覆盖 MIN_SPD=120 与 PIVOT_PWM=190)")
+    ap.add_argument("--arc", default="220,120",
+                    help="弧线实测档 '快,慢'(对应 BASE_SPD,MIN_SPD); 传 '' 跳过")
+    ap.add_argument("--vmax-pwm", type=int, default=255, help="满速直行用的 PWM(测 v_at_spd_max)")
+    ap.add_argument("--vmax-secs", type=float, default=3.0, help="满速直行时长")
+    ap.add_argument("--vmax-dist", type=float, default=None,
+                    help="操作员量到的直行距离(m); 不给则交互询问(或跳过)")
+    ap.add_argument("--out", default="calib.json", help="结果 JSON 输出路径")
     ap.add_argument("--yes", action="store_true", help="确认车已放好(会原地转)")
     ap.add_argument("--check-only", action="store_true", help="只做符号/IMU 核对, 不动电机")
     args = ap.parse_args()
@@ -141,12 +156,15 @@ def main():
         print("\n⚠️ 未加 --yes: 本步会开串口让车原地转, 确认安全后再跑。")
         return 1
 
+    report = {"measured_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+              "secs": args.secs, "pivot": {}, "arc": {}, "v_mps_at_pwm": None,
+              "sign": {}}
     fd = open_serial(args.port)
     try:
-        print("\n== 原地转角速度 (MOVE L/R, 逐档实测) ==")
+        print("\n== A. 原地转角速度 (MOVE L/R) ==")
         print("  pwm   方向    Δyaw(°)   °/s")
         rows = []
-        for pwm in [int(x) for x in args.pwms.split(",")]:
+        for pwm in [int(x) for x in args.pwms.split(",") if x.strip()]:
             for d in ("L", "R"):
                 dy, rate = measure(fd, f"MOVE {d} {pwm}", args.secs)
                 if dy is None:
@@ -154,25 +172,76 @@ def main():
                     continue
                 print(f"  {pwm:<5} {d}       {dy:+7.1f}   {rate:+7.1f}")
                 rows.append((pwm, d, dy, rate))
-        ok = [r for r in rows if r[3] is not None]
-        if ok:
-            avg = sum(abs(r[3]) for r in ok) / len(ok)
-            print(f"\n  → 三档平均 |ω| ≈ {avg:.0f}°/s (写回 follow_controller 的口径: "
-                  f"PIVOT_PWM={args.pwms.split(',')[1]} 对应 ≈ "
-                  f"{[round(abs(r[3])) for r in ok if r[0] == int(args.pwms.split(',')[1])]})")
-            print("  → 该值用于: TTE 阈值(需 > 人的角速度 v/d) / 扫描 90° 一档的用时 / 驻留")
-        print("\n== IMU 符号核对 ==")
+                report["pivot"].setdefault(str(pwm), {})[d] = round(rate, 1)
+
+        print("\n== B. 弧线角速度 (DIFF, 校核 BASE/MIN 的真实差速) ==")
+        if args.arc.strip():
+            fast, slow = [int(x) for x in args.arc.split(",")]
+            for (l, r) in ((fast, slow), (slow, fast)):
+                dy, rate = measure(fd, f"DIFF L{l} R{r}", args.secs)
+                if dy is None:
+                    print(f"  DIFF L{l} R{r}: (IMU 丢了)")
+                    continue
+                print(f"  DIFF L{l} R{r}: Δyaw {dy:+7.1f}°  → {rate:+6.1f}°/s")
+                report["arc"][f"L{l}R{r}"] = round(rate, 1)
+
+        print("\n== C. 满 PWM 地面速度 (v_at_spd_max) ==")
+        dist = args.vmax_dist
+        if dist is None:
+            print(f"  即将以 MOVE F {args.vmax_pwm} 直行 {args.vmax_secs}s —— 直行距离需人工量。")
+            try:
+                if sys.stdin.isatty():
+                    s = input(f"  量到的直行距离(m, 回车跳过): ").strip()
+                    dist = float(s) if s else None
+            except (EOFError, ValueError):
+                dist = None
+        if dist is not None:
+            burst(fd, f"MOVE F {args.vmax_pwm}", args.vmax_secs)
+            v = dist / args.vmax_secs
+            report["v_mps_at_pwm"] = {"pwm": args.vmax_pwm, "mps": round(v, 3)}
+            v_at_255 = v * (255.0 / max(1, args.vmax_pwm))
+            print(f"  {dist:.2f}m / {args.vmax_secs:.1f}s → {v:.2f} m/s @ PWM{args.vmax_pwm}"
+                  f" → 折合满量程 ≈{v_at_255:.2f} m/s (写 configs/lidar_guard.json v_at_spd_max)")
+        else:
+            print("  (跳过: 未提供距离。可重跑 --vmax-dist <米>)")
+
+        print("\n== D. IMU 符号核对 ==")
         dl = [r[2] for r in rows if r[1] == "L"]
         dr = [r[2] for r in rows if r[1] == "R"]
+        sign_ok = None
         if dl and dr:
-            print(f"  MOVE L → Δyaw {sum(dl)/len(dl):+.1f}°   (期望 >0: 逆时针/左)")
-            print(f"  MOVE R → Δyaw {sum(dr)/len(dr):+.1f}°   (期望 <0)")
-            if sum(dl) / len(dl) > 0 and sum(dr) / len(dr) < 0:
+            mvl = sum(dl) / len(dl)
+            mvr = sum(dr) / len(dr)
+            print(f"  MOVE L → Δyaw {mvl:+.1f}°   (期望 >0: 逆时针/左)")
+            print(f"  MOVE R → Δyaw {mvr:+.1f}°   (期望 <0)")
+            sign_ok = (mvl > 0 and mvr < 0)
+            report["sign"] = {"move_l_dyaw": round(mvl, 1), "move_r_dyaw": round(mvr, 1),
+                              "convention_ok": sign_ok}
+            if sign_ok:
                 print("  [PASS] 与 rk_control/_get_yaw_rate 的'逆时针为正'约定一致 → "
                       "IMU_TO_THETA_SIGN=-1 成立")
             else:
                 print("  [FAIL] 与文档约定相反 → 改 follow_controller.IMU_TO_THETA_SIGN 符号, "
                       "并复核 rk_control 的直行航向环(YAW_K 支路)")
+
+        print("\n== 写回清单 ==")
+        try:
+            pwm_p = 190
+            r190 = report["pivot"].get(str(pwm_p), {})
+            if r190:
+                est = sum(abs(v) for v in r190.values()) / len(r190)
+                print(f"  follow_controller.PIVOT_RATE_DPS = {est:.0f}   "
+                      f"(PIVOT_PWM={pwm_p} 实测)")
+            if report.get("v_mps_at_pwm"):
+                vm = report["v_mps_at_pwm"]
+                print(f"  configs/lidar_guard.json  v_at_spd_max = "
+                      f"{vm['mps'] * 255.0 / max(1, vm['pwm']):.2f}")
+            print("  (θ 左右符号另见上方人工核对项; 改完跑一遍 7 套离线回归)")
+        except Exception:
+            pass
+        with open(args.out, "w", encoding="utf-8") as f:
+            json.dump(report, f, ensure_ascii=False, indent=1)
+        print(f"\n结果已写入 {args.out}")
     finally:
         os.write(fd, b"STOP\r\n")
         os.close(fd)

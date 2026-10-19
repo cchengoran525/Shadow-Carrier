@@ -30,7 +30,7 @@ spec.loader.exec_module(m)
 FW = m.FW
 FCX = FW / 2
 FX = 508.2            # 与 state/calib/params.py 一致
-PIVOT_RATE = 120.0    # °/s: 本测试假定的原地转角速度(实机用 pivot_calib.py 实测)
+PIVOT_RATE = m.PIVOT_RATE_DPS   # 与生产同口径(190 PWM ≈174°/s); 实机由 pivot_calib 覆盖
 
 
 class Clock:
@@ -264,6 +264,8 @@ clk = Clock(); w = World(theta_world=30.0)
 fc = make(w, clk)                            # 无弱线索
 for i in range(8):
     tick(fc, w, clk)
+    if fc.phase == "TURN":                   # 一进原地转就隐藏强检测(否则快速转会对齐退出)
+        break
 w.h = 0.0
 holds = 0; moves = 0; reached_search = False
 for i in range(200):
@@ -290,20 +292,28 @@ print("\n== H1. 人在车后左右冒头(0.4s 一侧) → 轮端不得出现方�
 clk = Clock(); w = World(); fc = make(w, clk)
 for i in range(3):
     tick(fc, w, clk, hold=0.0)
-dirs = []
+dirs = []                                   # (拍号, 方向): 用**拍号**算间隔, 不是列表下标
 for i in range(60):
     side = 40.0 if (i // 4) % 2 == 0 else -40.0   # 2026-08 摇摆工况
     tag, val, info = tick(fc, w, clk, hold=side)
     if is_pivot(val):
-        dirs.append(val[0])
-flips = sum(1 for a, b in zip(dirs, dirs[1:]) if a != b)
-idx = [i for i, (a, b) in enumerate(zip(dirs, dirs[1:])) if a != b]
-gaps = [b - a for a, b in zip(idx, idx[1:])]
-print(f"  轮端方向序列: {''.join(dirs)}  反转={flips} 间隔={gaps}")
-# 不变式(比"次数"更本质): 换向不得快于最小驻留 —— 2026-08 的摇摆是 5Hz(0.2s 一翻),
+        dirs.append((i, val[0]))
+flips = [(a, b) for a, b in zip(dirs, dirs[1:]) if a[1] != b[1]]
+runs = []                                          # 每段同向的起点(拍号)
+for idx, d in dirs:
+    if not runs or runs[-1][1] != d:
+        runs.append((idx, d))
+gaps = [(b - a) * 0.1 for (a, _), (b, _) in zip(runs, runs[1:])]   # 段持续时长(秒)
+print(f"  轮端方向序列: {''.join(d for _, d in dirs)}  反转={len(flips)} "
+      f"每段时长(s)={gaps}")
+# 不变式(比"次数"更本质): 换向间隔不得小于最小驻留 —— 2026-08 的摇摆是 0.2s 一翻,
 # 有驻留挡着就不可能复现; 持续真摇摆则由反转看门狗兜底(H2 单独验机制)。
-assert all(g >= 3 for g in gaps), f"换向快于最小驻留(0.3s): {gaps}"
-assert flips <= len(dirs) * 0.25, f"换向率异常: {flips}/{len(dirs)} 拍"
+assert all(g >= m.PIVOT_DWELL_S - 1e-9 for g in gaps), \
+    f"换向快于最小驻留({m.PIVOT_DWELL_S}s): {gaps}"
+# 密度上界由驻留本身决定(换向不可能比"每 PIVOT_DWELL_S 一次"更密)
+_span = (dirs[-1][0] - dirs[0][0]) * 0.1
+assert (len(flips) - 1) * m.PIVOT_DWELL_S <= _span + 1e-9, \
+    f"换向密度超过驻留允许: {len(flips)} 次 / {_span:.1f}s"
 print("  [PASS] 换向率被最小驻留压住 (远低于 2026-08 的 5Hz 摇摆)")
 
 print("\n== H2. 看门狗机制: 反转超限 → 强制回弧线 ==")
