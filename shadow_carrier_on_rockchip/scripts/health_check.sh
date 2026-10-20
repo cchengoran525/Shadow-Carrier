@@ -11,7 +11,7 @@ set -u
 WATCH=0; INTERVAL=15
 if [ "${1:-}" = "--watch" ]; then WATCH="${2:-600}"; INTERVAL="${3:-15}"; fi
 API="http://127.0.0.1:8080/api/detections"
-SVC="rk-control video-stream ap-hotspot imu c3-watchdog camera-usb-fix"
+SVC="rk-control hri-state video-stream ap-hotspot imu c3-watchdog camera-usb-fix"
 TH_AGE=200          # ms: 检测结果年龄上限(交付标准 <200)
 TH_DNS=10           # %: dnsmasq CPU 上限
 STATE=/tmp/health_check.prev
@@ -35,6 +35,7 @@ snapshot() {
   for s in $SVC; do
     if systemctl is-active --quiet "$s"; then ok "$s active"; else bad "$s NOT active"; fi
   done
+  systemctl is-active --quiet geometry-parked.timer && ok "geometry-parked.timer active" || warn "geometry-parked.timer 未运行"
 
   echo "-- 相机 --"
   if [ -L /dev/camera0 ] && [ -e /dev/camera0 ]; then
