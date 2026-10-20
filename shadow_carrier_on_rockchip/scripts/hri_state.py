@@ -319,6 +319,7 @@ class HRIStateMachine:
                     and lost > p["timing"]["owner_lost_abort_s"]):
                 self.receive_cooldown_until = now + p["timing"]["receive_cooldown_s"]
                 self._set_state("WAIT", "主人离开")
+            self._publish_state(now, "NONE")   # 主人不在也要发布: 消费方需要知道"HRI 活着 + parked"
             return {"state": self.state, "action": "NONE"}
         self.owner_last_seen = time.time()
 
