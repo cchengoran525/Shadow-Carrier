@@ -144,6 +144,7 @@
 | 计划 / 排期 | **`ROADMAP.md`**（+ `REVIEW_AND_SEMESTER_PLAN.md`、`V2V3_ROADMAP.md`） | `PACKAGING_PLAN.md` 的排期表 |
 | 动态 / 进度 / 契约变更 | **`EXCHANGE.md`**（本地，不入 git） | — |
 | 演示 | `DEMO_PLAN.md` | `DEMO_VIDEO/` |
+| **实地验收 / 拍摄** | **`FIELD_TEST_PLAN.md`** | `DEMO_PLAN.md`（剧本） |
 | 平台 / 硬件 | `V2_CHASSIS_GIMBAL_DESIGN.md` | `V2_LIDAR_*`、`CAMERA_SELECTION.md` |
 | 研究 / 定位 | `RESEARCH_POSITIONING.md` + `PRESENCE_MANAGEMENT_SURVEY.md` | `AFFINITY_SCORE_LITERATURE.md` |
 | 封存清单 | `DEFERRED_WORK.md` | — |
