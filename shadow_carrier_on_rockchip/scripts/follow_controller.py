@@ -85,7 +85,7 @@ SEARCH_BACK_SPD = 70      # 后退速度(比 BACK_SPD 慢, 稳)
 # 原则3: 授权分级 —— 强证据(YOLO+模板)才能**发起**转向与放行平移;
 #        弱线索(低置信框/OpenCV 腿带)只能**维持**已发起的原地转, 绝不放行前进、
 #        不进 KF、不写 owner.json (机主原则第0层, owner_id.py:157)
-TURN_ENABLED = False     # 总开关: 仿真验证通过后置 True 逐步启用(每步可回退)
+TURN_ENABLED = True      # 总开关: 2026-10-20 [运动控制] T4 passby 启用(manual 模式无副作用, follow 才生效; 回退改 False + 重启 rk-control)
 
 PIVOT_ENTER_DEG = 30.0   # E2 兜底入口: |θ|≥此值持续 PIVOT_ENTER_S
 PIVOT_ENTER_S = 0.3

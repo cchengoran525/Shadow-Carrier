@@ -21,6 +21,10 @@ v7.2 -> v7.3 改动 (修复"USB相机间歇掉线 → 整条管线死 + watchdog
     [reap]     daemon 重启前 wait() 回收, 消除 <defunct> 僵尸
     [log]      daemon stderr 的非JSON行/退出码落盘 /dev/shm/yolo_daemon.log
     [stats]    /api/detections 增量暴露 cam_reopens/cam_reads/cam_read_fail/daemon_exits
+v7.3 -> v7.4 (2026-10-20): 取帧改**原子写**(tmp.jpg + rename)。
+  旧版直接 cv2.imwrite(FRAME_A/B), 而 yolo_daemon 与 owner_id.read_recent_frame() 会并发读
+  同一文件 → 偶发半帧("Premature end of JPEG") → 检测/认主瞬断, 直接拉低 passby 的 bbox
+  连续率。新增 stats.frame_write_fail。业务流程/接口不变。
 """
 import cv2, subprocess, os, time, threading, json, socketserver
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -66,7 +70,8 @@ inflight_cond = threading.Condition()
 last_json_t = time.time()  # 心跳: consumer更新, watchdog检查
 stats = {"read_fail": 0, "out_missing": 0, "max_gap": 0.0, "last_gap": 0.0,
          "infer_ms": 0, "restarts": 0,
-         "cam_reopens": 0, "cam_reads": 0, "cam_read_fail": 0, "daemon_exits": 0}
+         "cam_reopens": 0, "cam_reads": 0, "cam_read_fail": 0, "daemon_exits": 0,
+         "frame_write_fail": 0}
 stats_lock = threading.Lock()
 
 
@@ -239,7 +244,20 @@ def producer(cam_id):
         last_frame_t = time.time()
         path = FRAME_A if buf_idx else FRAME_B
         buf_idx ^= 1
-        cv2.imwrite(path, frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
+        # v7.4: 原子写 tmp.jpg -> rename。旧版直接 imwrite(FRAME_A/B), 而 yolo_daemon 与
+        # owner_id.read_recent_frame() 会并发读同一文件 → 偶发半帧("Premature end of JPEG"),
+        # 造成检测/认主瞬断, 直接拉低 passby 的 bbox 连续率。tmp 用 .jpg 后缀保证编码器可识别。
+        tmp = path + ".tmp.jpg"
+        try:
+            ok = cv2.imwrite(tmp, frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
+            if ok:
+                os.replace(tmp, path)
+            else:
+                with stats_lock:
+                    stats["frame_write_fail"] += 1
+        except Exception:
+            with stats_lock:
+                stats["frame_write_fail"] += 1
         try:
             d = daemon
             if d is None or d.stdin is None:
