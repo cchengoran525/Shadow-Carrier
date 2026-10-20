@@ -87,6 +87,10 @@
 **① 运动控制 vs HRI = "怎么做" vs "要不要做"**
 - `HIDE`：HRI 只挑**安全方位**（`sector_score` 最高的 bearing）；**怎么倒进去、轮速、掉不掉头**归运动控制。
 - 实例 **passby**：转向通道是运动控制本职；HRI 只在停驻域请求有界转头 → **两者不矛盾，是上下游**。
+- **A1.3 动作消费（2026-10-20）**：HRI 只写 `{state, action, parked}`；`rk_control` 的动作桥
+  （`_hri_bridge_loop`）把 `APPROACH / BACK_OFF / GOTO_SAFE <bearing>` 映射成**有界短脉冲**
+  （APPROACH ≤3s、BACK_OFF 0.6s、GOTO_SAFE 转向 ≤3s + 前进 ≤1.5s；障碍 ≤30cm / 动作变化 /
+  IMU 丢失 → STOP）。桥激活期间**丢弃跟随命令**（单控制器纪律）。
 
 **② 世界理解 vs HRI = "哪好/哪差（与主人无关）" vs "我该不该去（与主人状态有关）"**
 - `sector_score` 只出"这个方位亲和度多少"（纯空间，可离线回归）；HRI 才引入"**主人静止 20s 才躲、躲最高分方位**"。

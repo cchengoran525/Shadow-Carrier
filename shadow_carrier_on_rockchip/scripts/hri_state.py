@@ -531,8 +531,10 @@ def load_dets_api(url="http://127.0.0.1:8080/api/detections"):
     return out
 
 
-def run_live(params_path=None):
+def run_live(params_path=None, owner_source=None):
     params = load_params(params_path)
+    if owner_source:
+        params.setdefault("owner", {})["source"] = owner_source
     logdir = os.path.expanduser("~/hri_logs")
     os.makedirs(logdir, exist_ok=True)
     logpath = os.path.join(logdir, time.strftime("hri_%Y%m%d_%H%M%S.jsonl"))
@@ -581,8 +583,10 @@ if __name__ == "__main__":
     ap.add_argument("--live", action="store_true")
     ap.add_argument("--fake", help="假数据脚本 jsonl: {wait,dets,moving}")
     ap.add_argument("--params", help="参数文件路径 (默认 hri_params.json)")
+    ap.add_argument("--owner-source", choices=["file", "none"], default=None,
+                    help="覆盖 owner.source: file=只认 owner.json 的主人框(真机 demo)")
     args = ap.parse_args()
     if args.live:
-        run_live(args.params)
+        run_live(args.params, owner_source=args.owner_source)
     else:
         run_fake(args.fake, args.params)

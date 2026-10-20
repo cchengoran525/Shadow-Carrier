@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh grid.json every 20s while parked
+
+[Timer]
+OnBootSec=30
+OnUnitActiveSec=20
+AccuracySec=2
+
+[Install]
+WantedBy=timers.target

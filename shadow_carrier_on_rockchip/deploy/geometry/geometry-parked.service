@@ -1,0 +1,11 @@
+[Unit]
+Description=ShadowCarrier grid.json refresh (parked only)
+After=rk-control.service hri-state.service
+Wants=rk-control.service hri-state.service
+
+[Service]
+Type=oneshot
+User=kickpi
+WorkingDirectory=/home/kickpi/shadow_carrier_on_rockchip
+ExecStart=/bin/sh deploy/geometry/geometry_parked.sh
+TimeoutStartSec=60

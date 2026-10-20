@@ -391,6 +391,13 @@ def _get_obs():
         fresh = time.monotonic() - obs_state["t"] < 1.0
         return (bool(fresh and obs_state["blocked"]), obs_state["cm"])
 
+def _obs_fresh():
+    """新鲜超声: (blocked, cm); 过期返回 (False, None) —— HRI 动作桥用，禁止拿旧距离做停车判据。"""
+    with obs_lock:
+        if time.monotonic() - obs_state["t"] < 1.0:
+            return bool(obs_state["blocked"]), obs_state["cm"]
+    return False, None
+
 def _weak_cue():
     """底盘转向弱线索(owner_id 产出): 只维持原地转, 不放行前进/不进候选池。
     follow_controller.TURN_ENABLED=False 时不被消费 → 接线本身无副作用。"""
@@ -416,11 +423,182 @@ def _get_owner_dist():
     except (OSError, ValueError, KeyError, TypeError):
         return None
 
+# ====== HRI 动作桥 (A1.3, 2026-10-20) ======
+# HRI 只产出 {state, action, parked}（不直接控车）；本桥是"运动控制"对动作的消费端。
+# 所有动作都是有界短脉冲：动作变化/超时/障碍/IMU 丢失 → STOP。
+# 桥激活期间跟随命令被丢弃，避免两个控制器抢底盘（2026-10-14 事故的纪律）。
+HRI_ACTION_MAX_AGE_S = 0.5
+HRI_APPROACH_SPD = 80
+HRI_APPROACH_STOP_M = 0.5        # 地面测距可用时
+HRI_APPROACH_STOP_CM = 35.0      # 超声兜底（<1.6m 时地面测距返回 None）
+HRI_APPROACH_MAX_S = 3.0
+HRI_APPROACH_GAP_S = 1.2
+HRI_BACK_SPD = 80
+HRI_BACK_S = 0.6
+HRI_BACK_GAP_S = 1.5
+HRI_GOTO_SPD = 90
+HRI_GOTO_MAX_S = 1.5
+HRI_GOTO_TURN_SPD = 110
+HRI_GOTO_TOL_DEG = 8.0
+HRI_GOTO_TURN_MAX_S = 3.0
+HRI_GOTO_RETRY_S = 12.0
+HRI_OBSTACLE_CM = 30.0
+# grid/sector_score 的 bearing = 右正；IMU yaw 增大 = 左(CCW) → 目标 yaw = y0 - bearing
+HRI_BEARING_TO_YAW_SIGN = -1.0
+
+_HRI_LATCH = {"key": None, "t": 0.0, "pulse": -1e9}
+_hri_bridge_flag = False
+_hri_bridge_lock = threading.Lock()
+
+
+def _hri_action(max_age=HRI_ACTION_MAX_AGE_S, path=None):
+    """读 HRI 动作文件；缺失/过期/坏 JSON/无 action → None。"""
+    try:
+        with open(path or HRI_STATE) as f:
+            o = json.load(f)
+        if time.time() - float(o.get("ts", 0)) > max_age:
+            return None
+        return o if o.get("action") else None
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def _hri_reset():
+    """测试用：清闩锁/间隙。"""
+    _HRI_LATCH.update(key=None, t=0.0, pulse=-1e9)
+
+
+def _hri_bridge_active():
+    with _hri_bridge_lock:
+        return _hri_bridge_flag
+
+
+def _hri_plan(o, now, dist=None, obs_cm=None):
+    """纯决策：HRI 动作 → (kind, payload) / None。有界 + 间隙 + 闩锁。"""
+    if not o:
+        _HRI_LATCH["key"] = None
+        return None
+    act = (o.get("action") or "").strip()
+    st = o.get("state") or ""
+    if act.startswith("GOTO_SAFE"):
+        try:
+            bearing = float(act.split()[1])
+        except (IndexError, ValueError):
+            bearing = None
+        key = f"goto:{st}:{bearing}"
+        if _HRI_LATCH["key"] == key and now - _HRI_LATCH["t"] < HRI_GOTO_RETRY_S:
+            return None
+        _HRI_LATCH.update(key=key, t=now)
+        return ("goto", bearing)
+    if act == "APPROACH":
+        if now - _HRI_LATCH["pulse"] < HRI_APPROACH_GAP_S:
+            return None
+        if dist is not None and dist <= HRI_APPROACH_STOP_M:
+            return None
+        if obs_cm is not None and obs_cm <= HRI_APPROACH_STOP_CM:
+            return None
+        _HRI_LATCH["pulse"] = now
+        return ("approach", None)
+    if act == "BACK_OFF":
+        if now - _HRI_LATCH["pulse"] < HRI_BACK_GAP_S:
+            return None
+        _HRI_LATCH["pulse"] = now
+        return ("back", None)
+    _HRI_LATCH["key"] = None
+    return None
+
+
+def _hri_execute(plan, send=None, dist_fn=None, obs_fn=None, yaw_fn=None,
+                 sleep_fn=time.sleep, now_fn=time.monotonic):
+    """执行一个有界脉冲；send/clock 可注入（离线测试）。"""
+    send = send or uart_send
+    kind = plan[0]
+    if kind == "back":
+        send(f"MOVE B {HRI_BACK_SPD}")
+        sleep_fn(HRI_BACK_S)
+        send("STOP")
+        return kind
+    if kind == "approach":
+        t0 = now_fn()
+        while now_fn() - t0 < HRI_APPROACH_MAX_S:
+            d = dist_fn() if dist_fn else None
+            if d is not None and d <= HRI_APPROACH_STOP_M:
+                break
+            b, cm = obs_fn() if obs_fn else (False, None)
+            if b or (cm is not None and cm <= HRI_OBSTACLE_CM):
+                break
+            send(f"MOVE F {HRI_APPROACH_SPD}")
+            sleep_fn(0.2)
+        send("STOP")
+        return kind
+    if kind == "goto":
+        bearing = plan[1]
+        y0 = yaw_fn() if yaw_fn else None
+        if bearing is None or y0 is None:
+            return "goto_no_ref"
+        target = y0 + HRI_BEARING_TO_YAW_SIGN * bearing
+        t0 = now_fn()
+        while now_fn() - t0 < HRI_GOTO_TURN_MAX_S:
+            y = yaw_fn()
+            if y is None:
+                break
+            err = _wrap180(target - y)
+            if abs(err) < HRI_GOTO_TOL_DEG:
+                break
+            send(f"MOVE {'L' if err > 0 else 'R'} {HRI_GOTO_TURN_SPD}")
+            sleep_fn(0.1)
+        t1 = now_fn()
+        while now_fn() - t1 < HRI_GOTO_MAX_S:
+            b, cm = obs_fn() if obs_fn else (False, None)
+            if b or (cm is not None and cm <= HRI_OBSTACLE_CM):
+                break
+            send(f"MOVE F {HRI_GOTO_SPD}")
+            sleep_fn(0.2)
+        send("STOP")
+        return kind
+    return "noop"
+
+
+def _hri_bridge_loop():
+    """后台消费 HRI 动作；仅在 follow 模式工作。"""
+    global _hri_bridge_flag
+    while True:
+        try:
+            if _get_mode() != "follow":
+                time.sleep(0.2)
+                continue
+            o = _hri_action()
+            plan = _hri_plan(o, time.monotonic(), dist=_get_owner_dist(),
+                             obs_cm=_obs_fresh()[1]) if o else None
+            if plan:
+                with _hri_bridge_lock:
+                    _hri_bridge_flag = True
+                try:
+                    _hri_execute(plan, send=uart_send, dist_fn=_get_owner_dist,
+                                 obs_fn=_obs_fresh, yaw_fn=_read_yaw)
+                finally:
+                    with _hri_bridge_lock:
+                        _hri_bridge_flag = False
+            time.sleep(0.1)
+        except Exception as e:
+            with _hri_bridge_lock:
+                _hri_bridge_flag = False
+            print(f"[hri] bridge error: {e}")
+            time.sleep(0.2)
+
+
+def _follow_send(cmd):
+    """跟随命令在 HRI 动作桥激活期间丢弃（单控制器纪律）。"""
+    if _hri_bridge_active():
+        return False
+    return uart_send(cmd)
+
+
 def _follow_loop():
     global fc
     try:
         from follow_controller import FollowController
-        fc = FollowController(uart_send, yaw_rate_fn=_get_yaw_rate,
+        fc = FollowController(_follow_send, yaw_rate_fn=_get_yaw_rate,
                               yaw_deg_fn=_read_yaw,    # 转向通道: 死推算/到位判据
                               obs_fn=_get_obs,         # 转向通道: 受阻否决
                               weak_cue_fn=_weak_cue,   # 转向通道: 人只剩腿时的方向权重
@@ -849,6 +1027,7 @@ def main():
     if ok: time.sleep(0.5)
     print("OK" if ok else "UART FAIL (will retry on udev)")
     threading.Thread(target=uart_reader, daemon=True).start()
+    threading.Thread(target=_hri_bridge_loop, daemon=True).start()
     httpd = TServer(('0.0.0.0', args.port), Handler)
     try: httpd.serve_forever()
     except KeyboardInterrupt: pass

@@ -1,0 +1,17 @@
+[Unit]
+Description=ShadowCarrier HRI behavior state machine (A1.3 action producer)
+After=network.target video-stream.service
+Wants=video-stream.service
+
+[Service]
+Type=simple
+User=kickpi
+WorkingDirectory=/home/kickpi/shadow_carrier_on_rockchip
+ExecStart=/usr/bin/python3 -u scripts/hri_state.py --live --owner-source file
+Restart=always
+RestartSec=2
+StandardOutput=append:/tmp/hri_state.log
+StandardError=append:/tmp/hri_state.log
+
+[Install]
+WantedBy=multi-user.target
