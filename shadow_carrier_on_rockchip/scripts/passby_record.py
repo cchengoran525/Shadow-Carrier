@@ -70,6 +70,8 @@ def record(path, stop_event, rate=10.0, api=DEFAULT_API, on_sample=None, log=pri
                                         x.get("p")])
             imu = _read_json("/dev/shm/imu.json")
             hs = _read_json("/dev/shm/hri_state.json")
+            fs = _read_json("/dev/shm/follow_status.json")
+            fs_fresh = bool(fs and (time.monotonic() - float(fs.get("t", 0)) < 1.0))
             rec = {"t": round(t, 4), "ts": round(time.time(), 3),
                    "owner_ok": bool(o_ok), "owner_age": o_age,
                    "owner_box": o_box, "owner_cx": o_cx,
@@ -79,7 +81,10 @@ def record(path, stop_event, rate=10.0, api=DEFAULT_API, on_sample=None, log=pri
                    "yaw_rate": None if not imu else imu.get("yaw_rate_dps"),
                    "hri_state": None if not hs else hs.get("state"),
                    "hri_action": None if not hs else hs.get("action"),
-                   "parked": None if not hs else hs.get("parked")}
+                   "parked": None if not hs else hs.get("parked"),
+                   "follow_fresh": fs_fresh,
+                   "follow_state": None if not fs_fresh else fs.get("state"),
+                   "follow_cmd": None if not fs_fresh else fs.get("cmd")}
             try:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
                 f.flush()

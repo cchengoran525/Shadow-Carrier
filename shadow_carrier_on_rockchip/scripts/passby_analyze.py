@@ -87,6 +87,33 @@ def main():
     max_gap = max([g[2] for g in gaps], default=0.0)
     bad_gaps = [g for g in gaps if g[2] > args.gap_ok]
 
+    # ---- 命令停止段(有新鲜 follow_status 时才算; 判"停住≤1.0s") ----
+    has_cmd = any(r.get("follow_fresh") for r in recs)
+    stops = []
+    if has_cmd:
+        s_start = None
+        prev_t2 = None
+        for r in recs:
+            if not r.get("follow_fresh"):
+                if s_start is not None:
+                    stops.append((s_start, prev_t2, prev_t2 - s_start))
+                    s_start = None
+                continue
+            t = r["t"]
+            moving = r.get("follow_cmd") not in (None, "STOP")
+            if not moving:
+                if s_start is None:
+                    s_start = t
+                prev_t2 = t
+            elif s_start is not None:
+                stops.append((s_start, prev_t2, prev_t2 - s_start))
+                s_start = None
+        if s_start is not None:
+            stops.append((s_start, prev_t2, prev_t2 - s_start))
+    long_stops = [s for s in stops if s[2] >= 0.3]
+    max_stop = max([s[2] for s in long_stops], default=0.0)
+    bad_stops = [s for s in long_stops if s[2] > 1.0]
+
     # ---- 疑似换主 ----
     # (a) 锁定连续段内, 相邻采样(Δt<=0.4s)中心跳变 > switch_px
     # (b) 一段缺失后重新锁定, 中心相对缺失前跳到另一侧(> switch_px)
@@ -147,6 +174,10 @@ def main():
         print("   缺失段: " + ", ".join(f"{g[0]-t0:.1f}s/{g[2]:.2f}s" for g in gaps[:12])
               + (" ..." if len(gaps) > 12 else ""))
     print(f"   疑似换主         : {len(switches)} 次   [阈值 0]")
+    if has_cmd:
+        print(f"   命令停止段(≥0.3s): {len(long_stops):>3} 段, 最长 {max_stop:.2f}s   [阈值 ≤1.0s]")
+    else:
+        print("   命令停止段       : 无 follow_status(旧录制/手动), 需视频手判")
     for s in switches[:10]:
         print(f"      @{s[0]:.1f}s {s[1]} {s[2]}→{s[3]}px")
     if dir_pct is None:
@@ -162,8 +193,13 @@ def main():
         fails.append(f"最长缺失 {max_gap:.2f}s > {args.gap_ok:.2f}s")
     if switches:
         fails.append(f"疑似换主 {len(switches)} 次")
+    if has_cmd and max_stop > 1.0:
+        fails.append(f"最长停止 {max_stop:.2f}s > 1.0s")
     print("\n   自动项: " + ("✅ PASS" if not fails else "❌ " + "; ".join(fails)))
-    print("   手填项: 停住次数/最长停顿(≤1.0s)、横向净空(≥0.6m)、转向是否朝人 —— 看视频 + 卷尺")
+    if has_cmd:
+        print("   手填项: 横向净空(≥0.6m)、转向是否朝人 —— 看视频 + 卷尺（停住已自动判）")
+    else:
+        print("   手填项: 停住次数/最长停顿(≤1.0s)、横向净空(≥0.6m)、转向是否朝人 —— 看视频 + 卷尺")
     return 0 if not fails else 1
 
 

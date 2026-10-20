@@ -19,7 +19,7 @@ v7.2 -> v7.3 改动 (修复"USB相机间歇掉线 → 整条管线死 + watchdog
     [producer] 读帧失败/异常不再死循环, 交给 camera_watchdog 统一重连
     [watchdog] 心跳超时仅在"输入仍在流动"时重启 daemon; 相机停摆时不空转重启
     [reap]     daemon 重启前 wait() 回收, 消除 <defunct> 僵尸
-    [log]      daemon stderr 的非JSON行/退出码落盘 /dev/shm/yolo_daemon.log
+    [log]      daemon stderr 的非JSON行/退出码落盘 ~/hri_logs/yolo_daemon.log (持久化)
     [stats]    /api/detections 增量暴露 cam_reopens/cam_reads/cam_read_fail/daemon_exits
 v7.3 -> v7.4 (2026-10-20): 取帧改**原子写**(tmp.jpg + rename)。
   旧版直接 cv2.imwrite(FRAME_A/B), 而 yolo_daemon 与 owner_id.read_recent_frame() 会并发读
@@ -41,7 +41,11 @@ JPEG_QUALITY = 50
 MAX_INFLIGHT = 2
 HEARTBEAT_TIMEOUT = 5.0
 CAMERA_REOPEN_AFTER = 2.5   # s: 超过此时间无成功读帧 → 判定相机异常并重连
-DAEMON_LOG = "/dev/shm/yolo_daemon.log"
+DAEMON_LOG = "/home/kickpi/hri_logs/yolo_daemon.log"   # 持久化(tmpfs 重启即丢, 便于事后查崩溃)
+try:
+    os.makedirs(os.path.dirname(DAEMON_LOG), exist_ok=True)
+except Exception:
+    pass
 DAEMON_LOG_MAX = 512 * 1024
 
 latest_jpeg = None
@@ -293,7 +297,9 @@ def consumer():
             continue
         line = line.strip()
         if not line.startswith('{'):
-            _log_daemon_line(line)   # [stage]/模型加载/崩溃诊断 → 落盘
+            # [stage] 是每帧的高频计时行, 不入盘(JSON 的 ms 已覆盖 infer); 其余诊断/崩溃行落盘
+            if not line.startswith('[stage]'):
+                _log_daemon_line(line)
             continue
         try:
             result = json.loads(line)

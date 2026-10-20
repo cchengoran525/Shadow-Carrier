@@ -84,6 +84,13 @@ details summary{cursor:pointer;color:#8b949e;font-size:13px;margin:6px 0}
   <pre id="health" style="margin-top:10px">点击刷新</pre>
 </div>
 
+<h2>⑤ 日志（保留：200 个 / 30 天）</h2>
+<div class="card">
+  <button class="d" onclick="loadLogs()">刷新日志列表</button>
+  <div id="logs" class="small" style="margin-top:8px">加载中...</div>
+  <pre id="logtail" hidden style="margin-top:8px"></pre>
+</div>
+
 <div class="small" style="margin-top:18px">
   说明：本页与主页面同源（板端 :80）。手机连 <b>ShadowCarrier-RK</b> 后访问 <b>http://192.168.4.1/test</b> 即可，无需网线/SSH。
 </div>
@@ -183,6 +190,37 @@ async function loadList(){
   } catch(e){ $('list').textContent = '读取失败'; }
 }
 
+async function loadLogs(){
+  try {
+    const d = await jget('/logs/list');
+    const box = $('logs');
+    box.innerHTML = '';
+    (d.files||[]).forEach(f=>{
+      const row = document.createElement('div');
+      row.style.margin = '5px 0';
+      const a = document.createElement('a');
+      a.href = '/logs/get?name=' + encodeURIComponent(f.name);
+      a.textContent = f.name;
+      const sz = document.createElement('span'); sz.className = 'k';
+      sz.textContent = '  ' + Math.round(f.size/1024) + 'KB';
+      const tail = document.createElement('button');
+      tail.className = 'd';
+      tail.style.cssText = 'margin-left:8px;padding:4px 8px;min-height:0;font-size:12px';
+      tail.textContent = '看尾部';
+      tail.onclick = ()=>tailLog(f.name);
+      row.appendChild(a); row.appendChild(sz); row.appendChild(tail);
+      box.appendChild(row);
+    });
+    if (!(d.files||[]).length) box.textContent = '（暂无）';
+  } catch(e){ $('logs').textContent = '读取失败'; }
+}
+async function tailLog(name){
+  const d = await jget('/logs/tail?n=200&name=' + encodeURIComponent(name));
+  const pre = $('logtail');
+  pre.hidden = false;
+  pre.textContent = (d.lines||[]).join('\n') || JSON.stringify(d);
+}
+
 async function health(){
   try {
     const d = await jget('/healthz');
@@ -196,6 +234,10 @@ async function health(){
       'imu         : age=' + (d.imu&&d.imu.age) + 's  yaw=' + (d.imu&&d.imu.yaw) +
         '  rate=' + (d.imu&&d.imu.yaw_rate) + '  q=' + (d.imu&&d.imu.q),
       'owner_age   : ' + d.owner_age + 's',
+      'follow      : ' + (d.follow ? (d.follow.state + '  cmd=' + d.follow.cmd +
+        '  off=' + d.follow.offset + '  lost=' + d.follow.lost + '  age=' + d.follow.age + 's') : 'null'),
+      'obs         : ' + (d.obs ? ((d.obs.blocked ? 'BLOCKED' : 'clear') + '  ' +
+        d.obs.cm + 'cm  age=' + d.obs.age + 's') : 'null'),
       'hri         : ' + JSON.stringify(d.hri),
       'dnsmasq cpu : ' + d.dnsmasq_cpu + '%',
       (d.det && d.det.error) ? ('det ERROR   : ' + d.det.error) : '',
@@ -220,6 +262,7 @@ async function health(){
 refreshMode();
 health();
 loadList();
+loadLogs();
 setInterval(refreshMode, 3000);
 </script>
 </body>

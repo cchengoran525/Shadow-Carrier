@@ -11,6 +11,7 @@ HRI_STATE = "/dev/shm/hri_state.json"   # HRI 发布: 停驻域判断(WAIT/HIDE)
 OWNER_JSON = "/dev/shm/owner.json"      # follow 发布(只含已过换人确认门的主人框)
 OWNER_DIST_MAX_AGE_S = 0.6              # 距离环允许的 owner.json 年龄
 IMU_JSON = "/dev/shm/imu.json"          # imu.service 产出 (yaw_deg / yaw_rate_dps)
+FOLLOW_STATUS = "/dev/shm/follow_status.json"  # 跟随时序旁路(纯增量): 供网页/记录器判"停住"
 
 
 def _hri_parked(max_age=0.5, path=None):
@@ -594,6 +595,25 @@ def _follow_send(cmd):
     return uart_send(cmd)
 
 
+def _publish_follow_status(state, cmd, val, info):
+    """跟随时序旁路(纯增量, 不参与控制): 每拍写 /dev/shm/follow_status.json。
+    供网页健康/记录器客观判"是否在驱动/停住", 不改 follow 行为。"""
+    try:
+        d = {"ts": round(time.time(), 3), "t": round(time.monotonic(), 3),
+             "state": state, "cmd": cmd,
+             "val": val if isinstance(val, (int, float, str)) else None}
+        if isinstance(info, dict):
+            for k in ("offset", "lost", "owner", "phase", "turn_deg", "smooth_h"):
+                if k in info:
+                    d[k] = info[k]
+        tmp = FOLLOW_STATUS + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(d, f)
+        os.replace(tmp, FOLLOW_STATUS)
+    except Exception:
+        pass
+
+
 def _follow_loop():
     global fc
     try:
@@ -620,6 +640,7 @@ def _follow_loop():
             except TypeError:
                 _tag, _val, _info = fc.tick()              # follow 版本无 turn_only → 零行为变化
             _st = _info.get("state") if isinstance(_info, dict) else None
+            _publish_follow_status(_st, _tag, _val, _info)   # 网页/记录器旁路(纯增量)
             if _st != last_state:                  # 黑匣子: 只记状态跃迁
                 print(f"[follow] state {last_state} -> {_st} {_info}")
                 last_state = _st
@@ -814,6 +835,7 @@ def _passby_worker(path, stop, on_sample):
 
 
 def _passby_start(name="run"):
+    _prune_logs()
     with _passby_lock:
         th = _passby["thread"]
         if th is not None and th.is_alive():
@@ -882,6 +904,53 @@ def _passby_list():
     return {"files": out}
 
 
+def _prune_logs(keep=200, days=30):
+    """日志保留策略: 最多保留 keep 个 .jsonl, 且删除超过 days 天的。返回删除数。"""
+    d = os.path.expanduser("~kickpi/hri_logs")
+    removed = 0
+    try:
+        files = [os.path.join(d, f) for f in os.listdir(d) if f.endswith(".jsonl")]
+        files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+        now = time.time()
+        for i, p in enumerate(files):
+            if i >= keep or (now - os.path.getmtime(p)) > days * 86400:
+                try:
+                    os.remove(p); removed += 1
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return removed
+
+
+def _log_path(name):
+    name = os.path.basename(name or "")
+    if not name or name.startswith("."):
+        return None
+    d = os.path.expanduser("~kickpi/hri_logs")
+    p = os.path.join(d, name)
+    return p if os.path.isfile(p) else None
+
+
+def _logs_list():
+    d = os.path.expanduser("~kickpi/hri_logs")
+    out = []
+    try:
+        for fn in os.listdir(d):
+            if not (fn.endswith(".jsonl") or fn.endswith(".log")):
+                continue
+            p = os.path.join(d, fn)
+            try:
+                st = os.stat(p)
+            except Exception:
+                continue
+            out.append({"name": fn, "size": st.st_size, "mtime": round(st.st_mtime, 1)})
+    except Exception:
+        pass
+    out.sort(key=lambda x: x["mtime"], reverse=True)
+    return {"dir": d, "keep": "200 个 / 30 天", "files": out[:100]}
+
+
 def _healthz():
     out = {"mode": _get_mode()}
     try:
@@ -916,6 +985,17 @@ def _healthz():
                       "parked": h.get("parked")}
     except Exception:
         out["hri"] = None
+    try:
+        with open(FOLLOW_STATUS) as f:
+            fs = json.load(f)
+        out["follow"] = {"age": round(time.monotonic() - float(fs.get("t", 0)), 2),
+                         "state": fs.get("state"), "cmd": fs.get("cmd"),
+                         "offset": fs.get("offset"), "lost": fs.get("lost")}
+    except Exception:
+        out["follow"] = None
+    with obs_lock:
+        out["obs"] = {"blocked": obs_state.get("blocked"), "cm": obs_state.get("cm"),
+                      "age": round(time.monotonic() - obs_state.get("t", 0), 2)}
     try:
         import subprocess
         r = subprocess.run(["ps", "-o", "pcpu=", "-C", "dnsmasq"],
@@ -958,6 +1038,40 @@ class Handler(BaseHTTPRequestHandler):
             self._json(_passby_status()); return
         if self.path == '/passby/list':
             self._json(_passby_list()); return
+        if self.path.startswith('/logs/list'):
+            self._json(_logs_list()); return
+        if self.path.startswith('/logs/get'):
+            p = _log_path(_qs(self.path, 'name', ''))
+            if not p:
+                self.send_response(404); self.end_headers(); return
+            try:
+                with open(p, 'rb') as f:
+                    body = f.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/octet-stream')
+                self.send_header('Content-Disposition',
+                                 'attachment; filename="%s"' % os.path.basename(p))
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers(); self.wfile.write(body)
+            except Exception:
+                self.send_response(500); self.end_headers()
+            return
+        if self.path.startswith('/logs/tail'):
+            try:
+                n = int(_qs(self.path, 'n', '200') or 200)
+            except Exception:
+                n = 200
+            p = _log_path(_qs(self.path, 'name', ''))
+            if not p:
+                self._json({"error": "not found"}); return
+            try:
+                with open(p, 'r', errors='replace') as f:
+                    lines = f.readlines()[-max(1, min(n, 2000)):]
+                self._json({"name": os.path.basename(p),
+                            "lines": [x.rstrip('\n') for x in lines]})
+            except Exception as e:
+                self._json({"error": str(e)})
+            return
         if self.path.startswith('/healthz'):
             self._json(_healthz()); return
         if self.path == '/': self._page()

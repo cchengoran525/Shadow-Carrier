@@ -171,5 +171,5 @@ curl -s http://127.0.0.1/mode/manual; echo
 ```
 
 - **TURN_ENABLED 回退**：`follow_controller.py:88` 改回 `False`，重启 `rk-control`。
-- **相机/链路异常**：`dmesg | grep 0c45`、`/dev/shm/yolo_daemon.log`、`bash scripts/health_check.sh`。
+- **相机/链路异常**：`dmesg | grep 0c45`、`~/hri_logs/yolo_daemon.log`、`bash scripts/health_check.sh`。
 - 结果按 §9 回执格式写 `EXCHANGE.md`：`[运动控制] ✅/❌ 任务 | 证据 | 板端 md5 | 未过项与下一步`。
