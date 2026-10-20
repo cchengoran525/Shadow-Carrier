@@ -22,7 +22,7 @@ curl -s http://127.0.0.1/turn/status; echo                   # active:false, res
 若 `mode` 不是 manual：
 
 ```bash
-curl -s http://127.0.0.1/mode/manual; echo
+curl -s -X POST http://127.0.0.1/mode/manual; echo
 ```
 
 在板端先定义两个小函数，后面直接用：
@@ -118,7 +118,7 @@ pivot -30        # 车应【向右/顺时针】转 30°
 **前置**：`TURN_ENABLED=True`（10-20 已置）+ `mode=follow` + 认主成功。
 
 ```bash
-curl -s http://127.0.0.1/mode/follow; echo    # 启动跟随 → 主人站正前 1.5~2m，3s enroll
+curl -s -X POST http://127.0.0.1/mode/follow; echo    # 启动跟随 → 主人站正前 1.5~2m，3s enroll
 # 确认已锁定:
 cat /dev/shm/owner.json; echo
 ```
@@ -155,7 +155,7 @@ python3 ~/shadow_carrier_on_rockchip/scripts/passby_analyze.py \
 **任何一条出现「转 30° 就停 / 反向转 / 贴人 <0.6m / 换主」→ 立即停**：
 
 ```bash
-curl -s http://127.0.0.1/stop; echo
+curl -s -X POST http://127.0.0.1/stop; echo
 # 立刻抓现场:
 bash ~/shadow_carrier_on_rockchip/scripts/health_check.sh
 echo kickpi | sudo -S journalctl -u rk-control -n 80 --no-pager | tail -80
@@ -166,8 +166,8 @@ echo kickpi | sudo -S journalctl -u rk-control -n 80 --no-pager | tail -80
 ## 4. 收工 / 回退
 
 ```bash
-curl -s http://127.0.0.1/stop; echo
-curl -s http://127.0.0.1/mode/manual; echo
+curl -s -X POST http://127.0.0.1/stop; echo
+curl -s -X POST http://127.0.0.1/mode/manual; echo
 ```
 
 - **TURN_ENABLED 回退**：`follow_controller.py:88` 改回 `False`，重启 `rk-control`。
