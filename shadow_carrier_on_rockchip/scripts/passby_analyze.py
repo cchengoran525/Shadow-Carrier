@@ -163,8 +163,21 @@ def main():
             consistent += 1
     dir_pct = (100.0 * consistent / judged) if judged else None
 
+    # ---- HRI 动作时间线(T9/T10: 只展示, 不改行为) ----
+    timeline = []
+    prev = None
+    for r in recs:
+        key = (r.get("hri_state"), r.get("hri_action"), bool(r.get("parked")))
+        if key != prev:
+            timeline.append((round(r["t"] - t0, 1),) + key)
+            prev = key
+
     # ---- 打印 ----
     print(f"== passby 分析: {args.file}")
+    if recs[0].get("label"):
+        print(f"   场景标签         : {recs[0].get('label')}")
+        if recs[0].get("label") != "T4":
+            print("   注意: 当前自动阈值按 T4 设定; 本场景请按 FIELD_TEST_PLAN 对应判据解读")
     print(f"   时长 {dur:.1f}s / 样本 {n} / 采样率 {n / dur:.1f}Hz")
     print(f"   主人锁定率(严格) : {vis:5.1f}%   [阈值 ≥{args.vis_ok:.0f}%]")
     print(f"   画面有人率(宽松) : {person_pct:5.1f}%")
@@ -185,6 +198,10 @@ def main():
     else:
         print(f"   朝向一致性(粗检) : {dir_pct:5.1f}% ({consistent}/{judged})  "
               f"[参考; 人也在动, 不等于控制方向正确]")
+    if timeline:
+        tl = " → ".join(
+            f"{t}s:{s or '-'}/{a or '-'}" + ("/P" if p else "") for t, s, a, p in timeline[:20])
+        print(f"   HRI 时间线(T9/10): {tl}" + (" ..." if len(timeline) > 20 else ""))
 
     fails = []
     if vis < args.vis_ok:

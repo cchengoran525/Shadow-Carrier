@@ -36,7 +36,7 @@ def _read_det(api):
         return None
 
 
-def record(path, stop_event, rate=10.0, api=DEFAULT_API, on_sample=None, log=print):
+def record(path, stop_event, rate=10.0, api=DEFAULT_API, on_sample=None, log=print, label=None):
     """采样循环。stop_event.set() 即停。返回 summary dict。"""
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     period = 1.0 / max(1.0, float(rate))
@@ -72,7 +72,7 @@ def record(path, stop_event, rate=10.0, api=DEFAULT_API, on_sample=None, log=pri
             hs = _read_json("/dev/shm/hri_state.json")
             fs = _read_json("/dev/shm/follow_status.json")
             fs_fresh = bool(fs and (time.monotonic() - float(fs.get("t", 0)) < 1.0))
-            rec = {"t": round(t, 4), "ts": round(time.time(), 3),
+            rec = {"t": round(t, 4), "ts": round(time.time(), 3), "label": label,
                    "owner_ok": bool(o_ok), "owner_age": o_age,
                    "owner_box": o_box, "owner_cx": o_cx,
                    "n_person": len(persons), "persons": persons,

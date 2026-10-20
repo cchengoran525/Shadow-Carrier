@@ -58,9 +58,17 @@ details summary{cursor:pointer;color:#8b949e;font-size:13px;margin:6px 0}
   <div class="small">判据：角度误差 ≤10°、重复性 ±5°；记录起始/结束 yaw + 耗时 + 地面实际角度。</div>
 </div>
 
-<h2>③ T4 passby 录制</h2>
+<h2>③ 场景录制（T2 / T3 / T4 / T6 / T7）</h2>
 <div class="card">
   <div class="row">
+    <span class="small">场景</span>
+    <select id="scenario" style="background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:8px;padding:9px;font-size:15px">
+      <option value="T4">T4 passby</option>
+      <option value="T2">T2 直线跟随</option>
+      <option value="T3">T3 转弯跟随</option>
+      <option value="T6">T6 静止停等</option>
+      <option value="T7">T7 丢人重获</option>
+    </select>
     <span class="small">本条名称</span>
     <input class="name" id="recName" value="0.8_slow_L" placeholder="如 0.8_slow_L">
   </div>
@@ -89,6 +97,18 @@ details summary{cursor:pointer;color:#8b949e;font-size:13px;margin:6px 0}
   <button class="d" onclick="loadLogs()">刷新日志列表</button>
   <div id="logs" class="small" style="margin-top:8px">加载中...</div>
   <pre id="logtail" hidden style="margin-top:8px"></pre>
+</div>
+
+<h2>⑥ 链路 / 手动自检 / T1 enroll</h2>
+<div class="card">
+  <div class="row">
+    <button class="b" onclick="t0()">T0 链路 smoke</button>
+    <button class="y" onclick="t8()">T8 手动自检</button>
+    <button class="d" onclick="t1()">T1 enroll 状态</button>
+    <button class="r" onclick="testStop()">停止自检</button>
+  </div>
+  <pre id="selftest" style="margin-top:10px">idle</pre>
+  <div class="small">T0 = PING→MOVE F→STOP→MOVE L→STOP；T8 = F/B/L/R/STOP 各 0.4s。仅手动模式、每步有界短脉冲；物理响应请目视；自检后仍为 manual。</div>
 </div>
 
 <div class="small" style="margin-top:18px">
@@ -143,8 +163,10 @@ async function pivot(deg, spd){
 
 let recTimer = null;
 async function startRec(){
-  const name = ($('recName').value || 'run').trim();
-  const d = await jget('/passby/start?name='+encodeURIComponent(name));
+  const sc = ($('scenario').value || 'T4');
+  const nm = ($('recName').value || 'run').trim();
+  const name = sc + '_' + nm;
+  const d = await jget('/passby/start?name='+encodeURIComponent(name)+'&label='+encodeURIComponent(sc));
   if (!d || d.ok === false){ $('rec').textContent = '启动失败: '+JSON.stringify(d); return; }
   $('analysis').hidden = true;
   $('btnStart').disabled = true; $('btnStop').disabled = false;
@@ -219,6 +241,47 @@ async function tailLog(name){
   const pre = $('logtail');
   pre.hidden = false;
   pre.textContent = (d.lines||[]).join('\n') || JSON.stringify(d);
+}
+
+// ---- ⑥ 链路 / 手动自检 / T1 ----
+let tTimer = null;
+function fmtTest(d){
+  const lines = ['name=' + d.name + '  running=' + d.running + '  result=' + d.result +
+                 '  mode=' + d.mode + '  ' + d.elapsed + 's'];
+  (d.steps||[]).forEach(s=>{
+    lines.push('  ' + String(s.t).padStart(6) + 's  ' + s.cmd +
+               (s.ok ? '' : '  FAIL') + (s.note ? '  ' + s.note : ''));
+  });
+  return lines.join('\n');
+}
+async function testPoll(){
+  try {
+    const d = await jget('/test/status');
+    $('selftest').textContent = fmtTest(d);
+    if (!d.running && tTimer){ clearInterval(tTimer); tTimer = null; }
+  } catch(e){}
+}
+function startTest(path, label){
+  if (!confirm(label + '：车会短暂动作，确认四周 ≥1m 且无人？')) return;
+  $('selftest').textContent = '启动 ' + label + ' ...';
+  jget(path).then(d=>{
+    if (!d.ok){ $('selftest').textContent = '启动失败: ' + JSON.stringify(d); return; }
+    if (tTimer) clearInterval(tTimer);
+    tTimer = setInterval(testPoll, 400);
+  });
+}
+function t0(){ startTest('/test/t0', 'T0 链路 smoke'); }
+function t8(){ startTest('/test/t8', 'T8 手动自检'); }
+async function testStop(){ await jget('/test/stop'); testPoll(); }
+async function t1(){
+  const d = await jget('/test/t1');
+  $('selftest').textContent =
+    'T1 enroll\n  mode       : ' + d.mode +
+    '\n  samples    : ' + (d.samples === null ? '(journal 未找到)' : d.samples) +
+    '\n  owner_age  : ' + (d.owner_age === null ? '无 owner.json' : d.owner_age + 's') +
+    '\n  owner_bbox : ' + JSON.stringify(d.owner_bbox) +
+    '\n  template   : ' + (d.template || '-') +
+    '\n  ok(新鲜≤1s): ' + d.ok;
 }
 
 async function health(){

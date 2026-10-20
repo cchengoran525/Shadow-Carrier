@@ -46,8 +46,10 @@ pivot(){ curl -s -X POST http://127.0.0.1/turn_pivot \
 
 - **① 模式**：切手动（T0b）/ 切跟随（T4）/ 急停 STOP；
 - **② T0b**：转 90° / 180° / **-30°（符号确认）** / 自定义 `deg+speed`，实时显示 `/turn/status`；
-- **③ T4**：填本条名称 → 开始录制 → 走位 → **停止并分析**（自动出 锁定率/最长缺失/疑似换主）；
-- **④ 健康**：fps / age / restarts / `frame_write_fail` / `cam_reopens` / IMU / dnsmasq / 相机节点。
+- **③ 场景录制（T2/T3/T4/T6/T7）**：选场景 + 填本条名称 → 开始录制 → 走位 → **停止并分析**（自动出 锁定率/最长缺失/疑似换主/命令停止段/HRI 时间线）；
+- **④ 健康**：fps / age / restarts / `frame_write_fail` / `cam_reopens` / IMU / dnsmasq / 相机节点 / follow / 超声 OBS；
+- **⑤ 日志**：列表 + 下载 + 看尾部（保留 200 个 / 30 天）；
+- **⑥ 链路/自检**：**T0 链路 smoke**（PING→MOVE F→STOP→MOVE L→STOP）、**T8 手动自检**（F/B/L/R/STOP）、**T1 enroll 状态**（samples + owner.json 新鲜度）、停止自检。
 
 > 以下 §1–§3 的 curl/命令是同一套接口的 CLI 等价写法，二选一即可。
 

@@ -824,17 +824,17 @@ def _qs(path, key, default=None):
     return default
 
 
-def _passby_worker(path, stop, on_sample):
+def _passby_worker(path, stop, on_sample, label=None):
     try:
         import passby_record
-        passby_record.record(path, stop, rate=10.0, on_sample=on_sample)
+        passby_record.record(path, stop, rate=10.0, on_sample=on_sample, label=label)
     except Exception as e:
         with _passby_lock:
             _passby["err"] = str(e)
         print(f"[passby] recorder error: {e}")
 
 
-def _passby_start(name="run"):
+def _passby_start(name="run", label=None):
     _prune_logs()
     with _passby_lock:
         th = _passby["thread"]
@@ -849,7 +849,7 @@ def _passby_start(name="run"):
             with _passby_lock:
                 _passby.update(n=n, ok=ok, last=rec)
 
-        th = threading.Thread(target=_passby_worker, args=(path, stop, _on), daemon=True)
+        th = threading.Thread(target=_passby_worker, args=(path, stop, _on, label), daemon=True)
         _passby.update(thread=th, stop=stop, path=path, t0=time.monotonic(),
                        n=0, ok=0, last=None, err=None)
         th.start()
@@ -951,6 +951,126 @@ def _logs_list():
     return {"dir": d, "keep": "200 个 / 30 天", "files": out[:100]}
 
 
+# ====== 场景自检 (T0 链路 / T8 手动) + T1 enroll 状态 ======
+_test_lock = threading.Lock()
+_test = {"name": None, "thread": None, "stop": None, "steps": [],
+         "running": False, "t0": 0.0, "result": None, "mode": None}
+
+T0_STEPS = [("PING", 0.2), ("MOVE F 120", 0.6), ("MOVE L 120", 0.6)]
+T8_STEPS = [("MOVE F 120", 0.4), ("MOVE B 120", 0.4),
+            ("MOVE L 120", 0.4), ("MOVE R 120", 0.4), ("STOP", 0.1)]
+
+
+def _test_worker(name, steps, stop):
+    results = []
+    try:
+        for cmd, hold in steps:
+            if stop.is_set():
+                results.append({"cmd": cmd, "t": round(time.monotonic() - _test["t0"], 3),
+                                "ok": False, "note": "aborted"})
+                break
+            ok = uart_send(cmd)
+            results.append({"cmd": cmd, "t": round(time.monotonic() - _test["t0"], 3),
+                            "ok": bool(ok)})
+            with _test_lock:
+                _test["steps"] = list(results)
+            end = time.monotonic() + max(0.0, hold)
+            while time.monotonic() < end and not stop.is_set():
+                time.sleep(0.05)
+            if cmd.startswith("MOVE ") and not cmd.startswith("STOP"):
+                uart_send("STOP")           # 每个动作都是有界短脉冲
+                results.append({"cmd": "STOP",
+                                "t": round(time.monotonic() - _test["t0"], 3), "ok": True})
+                with _test_lock:
+                    _test["steps"] = list(results)
+                time.sleep(0.15)
+        if not stop.is_set():
+            uart_send("STOP")
+        with _test_lock:
+            _test["result"] = "aborted" if stop.is_set() else "done"
+    except Exception as e:
+        with _test_lock:
+            _test["result"] = f"error: {e}"
+    finally:
+        try:
+            uart_send("STOP")
+            _manual_reset()
+        except Exception:
+            pass
+        with _test_lock:
+            _test["running"] = False
+
+
+def _test_start(name, steps, dry=False):
+    with _test_lock:
+        if _test["running"]:
+            return {"ok": False, "error": "busy", "name": _test["name"]}
+    if _get_mode() != "manual":
+        _stop_follow()                     # 安全: 自检只在 manual 跑
+    with _test_lock:
+        _test.update(name=name, steps=[], running=not dry,
+                     t0=time.monotonic(), result="dry" if dry else None,
+                     mode=_get_mode())
+        if dry:
+            return {"ok": True, "name": name, "dry": True, "mode": _get_mode(),
+                    "steps": [c for c, _ in steps]}
+        stop = threading.Event()
+        _test["stop"] = stop
+        th = threading.Thread(target=_test_worker, args=(name, steps, stop), daemon=True)
+        _test["thread"] = th
+        th.start()
+    return {"ok": True, "name": name, "mode": _get_mode(),
+            "steps": [c for c, _ in steps]}
+
+
+def _test_stop():
+    with _test_lock:
+        stop = _test["stop"]
+    if stop is not None:
+        stop.set()
+    uart_send("STOP")
+    return {"ok": True}
+
+
+def _test_status():
+    with _test_lock:
+        th = _test["thread"]
+        alive = bool(th is not None and th.is_alive())
+        return {"name": _test["name"], "running": alive, "result": _test["result"],
+                "elapsed": round(time.monotonic() - _test["t0"], 1) if _test["t0"] else 0.0,
+                "steps": list(_test["steps"]), "mode": _get_mode()}
+
+
+def _t1_status():
+    """T1: enroll 样本数(从自身 journal 读) + owner.json 新鲜度(只读)。"""
+    out = {"mode": _get_mode(), "owner_age": None, "owner_bbox": None,
+           "samples": None, "template": None}
+    try:
+        with open(OWNER_JSON) as f:
+            o = json.load(f)
+        out["owner_age"] = round(time.time() - float(o.get("ts", 0)), 2)
+        out["owner_bbox"] = o.get("bbox")
+    except Exception:
+        pass
+    try:
+        import subprocess
+        import re
+        r = subprocess.run(["journalctl", "-u", "rk-control", "-n", "500",
+                            "--no-pager", "-o", "cat"],
+                           capture_output=True, text=True, timeout=5)
+        txt = r.stdout or ""
+        m = re.findall(r"\[owner\] enroll samples=(\d+)", txt)
+        if m:
+            out["samples"] = int(m[-1])
+        m2 = re.findall(r"\[owner\] template .*", txt)
+        if m2:
+            out["template"] = m2[-1].strip()
+    except Exception as e:
+        out["error"] = str(e)
+    out["ok"] = bool(out["owner_age"] is not None and out["owner_age"] <= 1.0)
+    return out
+
+
 def _healthz():
     out = {"mode": _get_mode()}
     try:
@@ -1031,7 +1151,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/test':
             self._test_page(); return
         if self.path.startswith('/passby/start'):
-            self._json(_passby_start(_qs(self.path, 'name', 'run'))); return
+            self._json(_passby_start(_qs(self.path, 'name', 'run'),
+                                     _qs(self.path, 'label', None))); return
         if self.path == '/passby/stop':
             self._json(_passby_stop()); return
         if self.path == '/passby/status':
@@ -1072,6 +1193,18 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self._json({"error": str(e)})
             return
+        if self.path.startswith('/test/t0'):
+            self._json(_test_start("T0", T0_STEPS,
+                                   dry=(_qs(self.path, 'dry', '0') == '1'))); return
+        if self.path.startswith('/test/t8'):
+            self._json(_test_start("T8", T8_STEPS,
+                                   dry=(_qs(self.path, 'dry', '0') == '1'))); return
+        if self.path.startswith('/test/stop'):
+            self._json(_test_stop()); return
+        if self.path.startswith('/test/status'):
+            self._json(_test_status()); return
+        if self.path.startswith('/test/t1'):
+            self._json(_t1_status()); return
         if self.path.startswith('/healthz'):
             self._json(_healthz()); return
         if self.path == '/': self._page()
