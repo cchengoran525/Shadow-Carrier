@@ -787,11 +787,179 @@ def _stop_follow():
         pass
     uart_send("STOP")
 
+# ====== 测试台 (T0b/T4) 网页支持: passby 录制 + 健康快照 ======
+_passby_lock = threading.Lock()
+_passby = {"thread": None, "stop": None, "path": None, "t0": 0.0,
+           "n": 0, "ok": 0, "last": None, "err": None}
+
+
+def _qs(path, key, default=None):
+    q = path.partition('?')[2]
+    for kv in q.split('&'):
+        if '=' in kv:
+            k, v = kv.split('=', 1)
+            if k == key:
+                return v
+    return default
+
+
+def _passby_worker(path, stop, on_sample):
+    try:
+        import passby_record
+        passby_record.record(path, stop, rate=10.0, on_sample=on_sample)
+    except Exception as e:
+        with _passby_lock:
+            _passby["err"] = str(e)
+        print(f"[passby] recorder error: {e}")
+
+
+def _passby_start(name="run"):
+    with _passby_lock:
+        th = _passby["thread"]
+        if th is not None and th.is_alive():
+            return {"ok": False, "error": "already recording", "path": _passby["path"]}
+        safe = "".join(c for c in (name or "run") if (c.isalnum() or c in "._-"))[:48] or "run"
+        path = os.path.join(os.path.expanduser("~kickpi/hri_logs"),
+                            f"passby_{safe}_{int(time.time())}.jsonl")
+        stop = threading.Event()
+
+        def _on(rec, n, ok):
+            with _passby_lock:
+                _passby.update(n=n, ok=ok, last=rec)
+
+        th = threading.Thread(target=_passby_worker, args=(path, stop, _on), daemon=True)
+        _passby.update(thread=th, stop=stop, path=path, t0=time.monotonic(),
+                       n=0, ok=0, last=None, err=None)
+        th.start()
+    return {"ok": True, "path": path}
+
+
+def _passby_stop():
+    with _passby_lock:
+        th, stop, path = _passby["thread"], _passby["stop"], _passby["path"]
+    if th is None or not th.is_alive():
+        return {"ok": False, "error": "not recording"}
+    stop.set()
+    th.join(timeout=3.0)
+    analysis, rc = "", -1
+    try:
+        import subprocess
+        ap = os.path.join(os.path.dirname(os.path.abspath(__file__)), "passby_analyze.py")
+        r = subprocess.run([sys.executable, ap, path], capture_output=True, text=True, timeout=20)
+        analysis = (r.stdout or "") + (r.stderr or "")
+        rc = r.returncode
+    except Exception as e:
+        analysis = f"analyzer error: {e}"
+    return {"ok": True, "pass": rc == 0, "path": path, "analysis": analysis}
+
+
+def _passby_status():
+    with _passby_lock:
+        th, n, ok, path, t0, last, err = (_passby["thread"], _passby["n"], _passby["ok"],
+                                          _passby["path"], _passby["t0"], _passby["last"],
+                                          _passby["err"])
+    alive = bool(th is not None and th.is_alive())
+    return {"running": alive, "path": path, "n": n, "owner_ok": ok,
+            "vis": round(100.0 * ok / n, 1) if n else 0.0,
+            "elapsed": round(time.monotonic() - t0, 1) if t0 else 0.0,
+            "last": last, "error": err}
+
+
+def _passby_list():
+    d = os.path.expanduser("~kickpi/hri_logs")
+    out = []
+    try:
+        for fn in sorted(os.listdir(d), reverse=True):
+            if fn.startswith("passby_") and fn.endswith(".jsonl"):
+                p = os.path.join(d, fn)
+                st = os.stat(p)
+                out.append({"name": fn, "path": p, "size": st.st_size,
+                            "mtime": round(st.st_mtime, 1)})
+            if len(out) >= 20:
+                break
+    except Exception:
+        pass
+    return {"files": out}
+
+
+def _healthz():
+    out = {"mode": _get_mode()}
+    try:
+        d = json.loads(urllib.request.urlopen(
+            "http://127.0.0.1:8080/api/detections", timeout=1.0).read())
+        out["det"] = {"fps": d.get("fps"), "age_ms": d.get("age_ms"),
+                      "frames": d.get("frames"), "stats": d.get("stats", {})}
+    except Exception as e:
+        out["det"] = {"error": str(e)}
+    try:
+        with open(IMU_JSON) as f:
+            imu = json.load(f)
+        out["imu"] = {"age": round(time.monotonic() - float(imu.get("ts", 0)), 2),
+                      "yaw": imu.get("yaw_deg"), "yaw_rate": imu.get("yaw_rate_dps"),
+                      "q": imu.get("quality")}
+    except Exception as e:
+        out["imu"] = {"error": str(e)}
+    try:
+        out["camera0"] = os.readlink("/dev/camera0")
+    except Exception:
+        out["camera0"] = None
+    try:
+        with open(OWNER_JSON) as f:
+            o = json.load(f)
+        out["owner_age"] = round(time.time() - float(o.get("ts", 0)), 2)
+    except Exception:
+        out["owner_age"] = None
+    try:
+        with open(HRI_STATE) as f:
+            h = json.load(f)
+        out["hri"] = {"state": h.get("state"), "action": h.get("action"),
+                      "parked": h.get("parked")}
+    except Exception:
+        out["hri"] = None
+    try:
+        import subprocess
+        r = subprocess.run(["ps", "-o", "pcpu=", "-C", "dnsmasq"],
+                           capture_output=True, text=True, timeout=2)
+        out["dnsmasq_cpu"] = (r.stdout.strip() or "0")
+    except Exception:
+        out["dnsmasq_cpu"] = None
+    return out
+
+
 # ====== HTTP Handler ======
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
+
+    def _test_page(self):
+        try:
+            p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_panel.html")
+            with open(p, "rb") as f:
+                body = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception as e:
+            self.send_response(500)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(f"test panel missing: {e}".encode())
+
     def do_GET(self):
+        if self.path == '/test':
+            self._test_page(); return
+        if self.path.startswith('/passby/start'):
+            self._json(_passby_start(_qs(self.path, 'name', 'run'))); return
+        if self.path == '/passby/stop':
+            self._json(_passby_stop()); return
+        if self.path == '/passby/status':
+            self._json(_passby_status()); return
+        if self.path == '/passby/list':
+            self._json(_passby_list()); return
+        if self.path.startswith('/healthz'):
+            self._json(_healthz()); return
         if self.path == '/': self._page()
         elif self.path == '/ping': self._json({"uart": uart_fd is not None, "mode": _get_mode()})
         elif self.path == '/mode': self._json({"mode": _get_mode()})
@@ -937,6 +1105,7 @@ button:disabled{{opacity:.3}}
 <div class="pad" id="gpad"><div class="knob" id="gknob"></div><span class="padhint">拖动云台</span></div>
 <button class="gbtn" id="gcenter">◎<br>回中</button>
 </div><div class="status" id="s">USB直连 C3 | 遥控模式</div>
+<div style="padding:6px 12px 10px;text-align:center"><a href="/test" style="color:#58a6ff;font-size:15px;text-decoration:none">🧪 测试台（T0b / T4 / 健康）</a></div>
 <script>
 let curMode='manual',t=null,a=null;
 function s(c,l){{fetch('/'+c,{{method:'POST'}}).then(r=>r.text()).then(x=>{{document.getElementById('s').textContent=l+': '+x}}).catch(e=>document.getElementById('s').textContent='ERR')}}

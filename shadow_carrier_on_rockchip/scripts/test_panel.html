@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>ShadowCarrier 测试台</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0d1117;color:#c9d1d9;font-family:-apple-system,"PingFang SC",sans-serif;padding:12px 12px 40px;max-width:760px;margin:0 auto}
+h1{font-size:18px;margin:4px 0 10px;color:#58a6ff}
+h2{font-size:15px;margin:18px 0 8px;color:#8b949e;border-bottom:1px solid #21262d;padding-bottom:6px}
+a{color:#58a6ff}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button{border:0;border-radius:9px;font-size:15px;font-weight:700;color:#fff;padding:11px 14px;min-height:44px}
+button:active{transform:scale(.97);filter:brightness(.85)}
+button:disabled{opacity:.35}
+.b{background:#1f6feb}.g{background:#238636}.y{background:#d29922}.r{background:#da3633}.d{background:#30363d}
+input{background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:8px;padding:9px 10px;font-size:18px;width:90px}
+input.name{width:170px;font-size:15px}
+.card{background:#161b22;border:1px solid #21262d;border-radius:12px;padding:12px}
+pre{white-space:pre-wrap;word-break:break-word;background:#0d1117;border:1px solid #21262d;border-radius:8px;padding:10px;font-size:12.5px;line-height:1.5;max-height:340px;overflow:auto}
+.k{color:#8b949e}.v{color:#3fb950;font-weight:700}.w{color:#d29922}.bad{color:#f85149}
+.small{font-size:12.5px;color:#8b949e;line-height:1.7}
+video,img#v{width:100%;border-radius:10px;background:#000}
+details summary{cursor:pointer;color:#8b949e;font-size:13px;margin:6px 0}
+</style>
+</head>
+<body>
+<h1>🧪 ShadowCarrier 测试台 <span style="font-size:12px;color:#8b949e">T0b / T4 / 健康</span></h1>
+<div class="row small">
+  <span>模式：<b id="mode" class="v">?</b></span>
+  <span id="ip" class="k"></span>
+  <a href="/" style="margin-left:auto">← 视频/遥控</a>
+</div>
+
+<h2>① 模式</h2>
+<div class="row">
+  <button class="b" onclick="setMode('manual')">切手动（T0b 用）</button>
+  <button class="g" onclick="setMode('follow')">切跟随（T4 用）</button>
+  <button class="r" onclick="estop()">■ 急停 STOP</button>
+</div>
+
+<h2>② T0b 原地转（手动模式）</h2>
+<div class="card">
+  <div class="row">
+    <button class="d" onclick="pivot(90)">转 90°</button>
+    <button class="d" onclick="pivot(180)">转 180°</button>
+    <button class="y" onclick="pivot(-30)">转 -30°（符号确认）</button>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <span class="small">自定义 deg</span>
+    <input id="deg" type="number" value="90">
+    <span class="small">speed</span>
+    <input id="spd" type="number" value="190">
+    <button class="b" onclick="pivot(+document.getElementById('deg').value, +document.getElementById('spd').value)">执行</button>
+  </div>
+  <pre id="turn" style="margin-top:10px">idle</pre>
+  <div class="small">判据：角度误差 ≤10°、重复性 ±5°；记录起始/结束 yaw + 耗时 + 地面实际角度。</div>
+</div>
+
+<h2>③ T4 passby 录制</h2>
+<div class="card">
+  <div class="row">
+    <span class="small">本条名称</span>
+    <input class="name" id="recName" value="0.8_slow_L" placeholder="如 0.8_slow_L">
+  </div>
+  <div class="row" style="margin-top:10px">
+    <button class="g" id="btnStart" onclick="startRec()">● 开始录制</button>
+    <button class="r" id="btnStop" onclick="stopRec()" disabled>■ 停止并分析</button>
+  </div>
+  <pre id="rec" style="margin-top:10px">idle</pre>
+  <pre id="analysis" hidden></pre>
+  <details style="margin-top:8px">
+    <summary>最近录制文件</summary>
+    <pre id="list">（点击刷新）</pre>
+    <button class="d" onclick="loadList()">刷新列表</button>
+  </details>
+  <div class="small">自动项：锁定率/最长缺失/疑似换主。手填：停住次数与最长停顿（≤1.0s）、横向净空（≥0.6m）、转向朝人。</div>
+</div>
+
+<h2>④ 健康快照</h2>
+<div class="card">
+  <button class="b" onclick="health()">刷新健康</button>
+  <pre id="health" style="margin-top:10px">点击刷新</pre>
+</div>
+
+<div class="small" style="margin-top:18px">
+  说明：本页与主页面同源（板端 :80）。手机连 <b>ShadowCarrier-RK</b> 后访问 <b>http://192.168.4.1/test</b> 即可，无需网线/SSH。
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+$('ip').textContent = location.host;
+
+async function jget(p){
+  const r = await fetch(p, {cache:'no-store'});
+  return await r.json();
+}
+async function jpost(p, body){
+  const opt = {method:'POST'};
+  if (body !== undefined){ opt.headers={'Content-Type':'application/json'}; opt.body=JSON.stringify(body); }
+  const r = await fetch(p, opt);
+  const t = await r.text();
+  try { return JSON.parse(t); } catch(e){ return {text:t}; }
+}
+
+async function refreshMode(){
+  try { const d = await jget('/mode'); $('mode').textContent = d.mode; $('mode').className = d.mode==='manual'?'v':'w'; } catch(e){}
+}
+async function setMode(m){
+  await jpost('/mode/'+m);
+  await refreshMode();
+}
+async function estop(){
+  await jpost('/stop');
+  try { const d = await jget('/mode'); if (d.mode !== 'manual') await jpost('/mode/manual'); } catch(e){}
+  await refreshMode();
+}
+
+let turnTimer = null;
+async function pivot(deg, spd){
+  deg = Number(deg); spd = Number(spd || 190);
+  if (!isFinite(deg)) return;
+  $('turn').textContent = '发送 /turn_pivot deg='+deg+' speed='+spd+' ...';
+  const d = await jpost('/turn_pivot', {deg:deg, speed:spd});
+  if (!d || d.ok === false){ $('turn').textContent = '启动失败: '+JSON.stringify(d); return; }
+  if (turnTimer) clearInterval(turnTimer);
+  turnTimer = setInterval(async ()=>{
+    try {
+      const s = await jget('/turn/status');
+      $('turn').textContent = 'active='+s.active+'  target='+s.target+'  yaw='+s.yaw+'  err='+s.err+'  result='+s.result;
+      if (!s.active){ clearInterval(turnTimer); turnTimer=null; }
+    } catch(e){}
+  }, 300);
+}
+
+let recTimer = null;
+async function startRec(){
+  const name = ($('recName').value || 'run').trim();
+  const d = await jget('/passby/start?name='+encodeURIComponent(name));
+  if (!d || d.ok === false){ $('rec').textContent = '启动失败: '+JSON.stringify(d); return; }
+  $('analysis').hidden = true;
+  $('btnStart').disabled = true; $('btnStop').disabled = false;
+  $('rec').textContent = '录制中 → '+d.path;
+  if (recTimer) clearInterval(recTimer);
+  recTimer = setInterval(pollRec, 1000);
+}
+async function pollRec(){
+  try {
+    const s = await jget('/passby/status');
+    const last = s.last || {};
+    $('rec').textContent =
+      (s.running ? '● 录制中' : '■ 已停止') +
+      '\n时长 ' + s.elapsed + 's   样本 ' + s.n +
+      '\n锁定率 ' + s.vis + '%' +
+      '\nowner=' + (last.owner_ok ? 'OK' : '--') +
+      '  n_person=' + (last.n_person===undefined?'-':last.n_person) +
+      '  fps=' + (last.fps===undefined?'-':last.fps) +
+      '\nyaw=' + (last.yaw===undefined?'-':last.yaw) +
+      '  hri=' + (last.hri_state||'-') + '/' + (last.hri_action||'-') +
+      (s.path ? '\n' + s.path : '') +
+      (s.error ? '\nERROR: '+s.error : '');
+    if (!s.running && recTimer){ clearInterval(recTimer); recTimer=null; }
+  } catch(e){}
+}
+async function stopRec(){
+  $('btnStop').disabled = true;
+  $('rec').textContent = '停止中，正在分析...';
+  const d = await jget('/passby/stop');
+  $('btnStart').disabled = false;
+  const a = $('analysis');
+  a.hidden = false;
+  a.textContent = d.analysis || ('分析失败: '+JSON.stringify(d));
+  if (recTimer){ clearInterval(recTimer); recTimer=null; }
+  pollRec();
+  loadList();
+}
+
+async function loadList(){
+  try {
+    const d = await jget('/passby/list');
+    $('list').textContent = (d.files||[]).map(f=>f.name+'  ('+Math.round(f.size/1024)+'KB)').join('\n') || '（暂无）';
+  } catch(e){ $('list').textContent = '读取失败'; }
+}
+
+async function health(){
+  try {
+    const d = await jget('/healthz');
+    const st = (d.det && d.det.stats) || {};
+    const lines = [
+      'mode        : ' + d.mode,
+      'detections  : fps=' + (d.det&&d.det.fps) + '  age=' + (d.det&&d.det.age_ms) + 'ms',
+      'yolo        : restarts=' + st.restarts + '  read_fail=' + st.read_fail +
+        '  frame_write_fail=' + st.frame_write_fail + '  cam_reopens=' + st.cam_reopens,
+      'camera0     : ' + d.camera0,
+      'imu         : age=' + (d.imu&&d.imu.age) + 's  yaw=' + (d.imu&&d.imu.yaw) +
+        '  rate=' + (d.imu&&d.imu.yaw_rate) + '  q=' + (d.imu&&d.imu.q),
+      'owner_age   : ' + d.owner_age + 's',
+      'hri         : ' + JSON.stringify(d.hri),
+      'dnsmasq cpu : ' + d.dnsmasq_cpu + '%',
+      (d.det && d.det.error) ? ('det ERROR   : ' + d.det.error) : '',
+      (d.imu && d.imu.error) ? ('imu ERROR   : ' + d.imu.error) : ''
+    ].filter(Boolean);
+    $('health').textContent = lines.join('\n');
+  } catch(e){ $('health').textContent = '读取失败: '+e; }
+}
+
+// 视频预览（8080 端口，与主页面一致）
+(function(){
+  const img = document.createElement('img');
+  img.id = 'v';
+  img.src = '//' + location.hostname + ':8080/stream';
+  img.alt = 'video';
+  const det = document.createElement('details');
+  det.innerHTML = '<summary>视频预览（占带宽，默认收起）</summary>';
+  det.appendChild(img);
+  document.body.insertBefore(det, document.querySelector('h2'));
+})();
+
+refreshMode();
+health();
+loadList();
+setInterval(refreshMode, 3000);
+</script>
+</body>
+</html>
