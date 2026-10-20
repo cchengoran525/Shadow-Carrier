@@ -71,6 +71,7 @@ SC 用**"主动分离"（proactive separation）这一负向策略**，把"动�
 ```
 
 **复用映射**：Pre→新决策；During→`HIDE`/`sector_score`（换触发条件）；After→`wait_owner` + `follow_controller`。
+**边界**：这里的 After 仅指主人重新进入视觉范围并通过认主确认后的基础恢复；主人持续在视野外时的定位与主动找回仍属于 V3 / Phase C。
 **唯一新写**：`Pre` 的触发判据（起步可用"人数 + 迎面运动"，进阶再谈预测）。
 
 ---
