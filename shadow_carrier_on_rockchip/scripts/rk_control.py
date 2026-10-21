@@ -412,6 +412,62 @@ def _weak_cue():
     except Exception:
         return None
 
+def _leg_follow_cue():
+    """腿跟硬门(统筹 2026-10-22 A): mode=follow, HRI=FOLLOW, 仅1人,
+    OBS 有效且 >35cm、dist>=0.7、腿带 score>=0.35。
+    只返回方向 {u,score,src}; 不写 owner.json/不进 KF/不刷新模板。"""
+    if _get_mode() != "follow":
+        return None
+    try:
+        with open(HRI_STATE) as f:
+            h = json.load(f)
+        if time.time() - float(h.get("ts", 0)) > 0.5:
+            return None
+        if (h.get("state") or "") != "FOLLOW":
+            return None
+    except Exception:
+        return None
+    try:
+        import owner_id
+        n = 0
+        for d in owner_id._fetch_raw_persons():
+            if str(d.get("c")) == "person" and float(d.get("p", 0)) >= owner_id.LOWCONF_MIN_P:
+                n += 1
+        if n > 1:
+            return None
+    except Exception:
+        return None
+    try:
+        b, cm = _get_obs()
+        if b or cm is None or cm <= 0 or cm <= 35:
+            return None
+    except Exception:
+        return None
+    try:
+        d = _get_owner_dist()
+        if d is not None and d < 0.7:
+            return None
+    except Exception:
+        pass
+    try:
+        import owner_id
+        prof = fc.profile if fc is not None else None
+        if prof is None:
+            return None
+        img = owner_id.read_recent_frame()
+        if img is None:
+            return None
+        got = prof.find_leg_band(img)
+        if not got:
+            return None
+        u, score = got
+        if float(score) < 0.35:
+            return None
+        return {"u": float(u), "score": float(score), "src": "leg_band"}
+    except Exception:
+        return None
+
+
 def _get_owner_dist():
     """主人到车的地面距离(m) —— follow 的 dist_fn 注入。
     数据源: follow 自己发布的 /dev/shm/owner.json(只含已过换人确认门的框) + 地面几何。
@@ -628,6 +684,7 @@ def _follow_loop():
                               yaw_deg_fn=_read_yaw,    # 转向通道: 死推算/到位判据
                               obs_fn=_get_obs,         # 转向通道: 受阻否决
                               weak_cue_fn=_weak_cue,   # 转向通道: 人只剩腿时的方向权重
+                              leg_follow_fn=_leg_follow_cue,  # 腿跟(默认关): 硬门在 rk_control
                               dist_fn=_get_owner_dist) # 距离环: 地面几何测距(替代框高)
         if not fc.start():
             # 机主原则: 认主失败拒绝跟随, 模式退回手动(凝视线随之退出)
@@ -1081,7 +1138,7 @@ def _t1_status():
 MOTION_TUNE = os.path.expanduser("~kickpi/hri_logs/motion_tune.json")
 _FC_KEYS = {"BASE_SPD", "MIN_SPD", "PIVOT_PWM", "YAW_CORR_MAX", "BACK_SPD",
             "SEARCH_BACK_SPD", "MAX_OFFSET"}
-_BOOL_KEYS = {"TURN_ENABLED"}   # 运行时可切: T2/T3/T6/T7 基线=0, T4 passby=1
+_BOOL_KEYS = {"TURN_ENABLED", "LEG_FOLLOW_ENABLED"}   # T2/T3/T6/T7 基线=关转向; 腿跟默认关
 _FC_FLOAT_KEYS = {"W_DES_GAIN": 5.0, "W_DES_MAX": 180.0, "YAW_K": 20.0,
                   "YAW_DEAD": 20.0, "YAW_WHEEL_MIN": 255.0}
 _RK_KEYS = ("MANUAL_FWD_SPD", "HRI_APPROACH_SPD", "HRI_BACK_SPD",

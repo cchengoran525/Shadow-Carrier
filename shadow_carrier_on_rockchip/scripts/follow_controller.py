@@ -123,6 +123,16 @@ EDGE_DEG = 24.0          # 贴边记出画侧(供丢人后的定向扫描)
 # 弱线索 / 盲区 / 定向扫描
 WEAK_TTL_S = 3.0         # 弱线索有效期(自最后一次强确认起算; "只维持不发起")
 WEAK_MIN_SCORE = 0.35    # 弱线索强度下限(各源归一化后给)
+# ===== 小场地"腿跟" (2026-10-22 统筹裁定 A; 默认关) =====
+# 仅当最近强锁<=TTL、且外部 leg_follow_fn 的硬门全过时, 用腿带方向维持慢速前进;
+# 绝不发起、不写 owner.json/KF/模板. 任一硬门失败 → 回正常 lost/wait.
+LEG_FOLLOW_ENABLED = False
+LEG_FOLLOW_TTL_S = 3.0
+LEG_FOLLOW_SPD = 140
+LEG_FOLLOW_MIN_SPD = 120
+LEG_FOLLOW_MAX_JUMP_PX = 120
+LEG_FOLLOW_LOST_S = 0.4
+LEG_FOLLOW_CONE_DEG = 25.0
 BLIND_MAX_S = 1.2        # 纯预测盲区的桥接时长(BLIND 是"桥": 转估计该转的那点就行,
 #                          有目的的搜索交给 SEARCH; 角度上限见 PIVOT_BLIND_MAX_DEG)
 SEARCH_STEP_DEG = 90.0   # 定向扫描每档角度
@@ -164,7 +174,7 @@ def _publish_owner(box):
 class FollowController:
     def __init__(self, send_cmd_fn, bearing_fn=None, person_provider=None,
                  yaw_rate_fn=None, dist_fn=None, yaw_deg_fn=None, obs_fn=None,
-                 weak_cue_fn=None, bearing_of_fn=None):
+                 weak_cue_fn=None, bearing_of_fn=None, leg_follow_fn=None):
         # bearing_fn: [云台]线提供的"主人世界方位角(度)"只读回调。
         # 非None时转向误差用它(云台解耦), 否则退回原始bbox像素偏差。
         # person_provider: 仿真检测输入; 实机默认仍走 owner_id 认主链路。
@@ -178,6 +188,10 @@ class FollowController:
         self.yaw_deg_fn = yaw_deg_fn     # 积分航向(度), 原地转的死推算与到位判据
         self.obs_fn = obs_fn             # () -> (blocked, cm) 或 None; 超声波否决原地转
         self.weak_cue_fn = weak_cue_fn   # () -> {"dir","score","src"} 或 None; 只维持不发起
+        self.leg_follow_fn = leg_follow_fn   # 腿跟: () -> {"u","score","src"} 或 None (硬门在 rk_control)
+        self._leg_last_u = None
+        self._leg_last_t = 0.0
+        self._leg_active = False
         # bearing_of_fn: 像素列 → 车体系方位角(度)。实机默认走 state/decoder(真机内参);
         # 仿真注入自己投影用的内参, 否则 CX/fx 不一致会引入常数偏置+尺度误差(实测 +3°/15%)。
         self.bearing_of_fn = bearing_of_fn
@@ -710,6 +724,11 @@ class FollowController:
             return "STOP", 0, {"state": "back_done"}
 
         person = self._fetch_person()
+        if person is not None:
+            # 腿跟 TTL 用: 与转向通道解耦(TURN_ENABLED=False 时 _steer 不跑)
+            self._last_strong_t = _now
+            self._leg_last_u = None
+            self._leg_active = False
 
         # ===== 底盘转向通道 (v5) =====
         # TURN_ENABLED=False 时整段不执行 → 行为与 v4 逐字节一致(逐步启用/可回退)
@@ -722,6 +741,70 @@ class FollowController:
             return None, None, {"state": "turn_idle", "phase": self.phase}
 
         if person is None:
+            # ---- 小场地腿跟(默认关): 强锁 TTL 内用腿带方向维持慢速前进 ----
+            if LEG_FOLLOW_ENABLED:
+                ttl_ok = (self._last_strong_t is not None and
+                          (_now - self._last_strong_t) <= LEG_FOLLOW_TTL_S)
+                if ttl_ok and self.leg_follow_fn is not None:
+                    cue = None
+                    try:
+                        cue = self.leg_follow_fn()
+                    except Exception:
+                        cue = None
+                    u = None if not cue else cue.get("u")
+                    hard_fail = False
+                    if u is not None:
+                        u = float(u)
+                        last_th = (math.degrees(math.atan((self.scx - FCX) / 508.0))
+                                   if self.sh > 0 else 0.0)
+                        cur_th = math.degrees(math.atan((u - FCX) / 508.0))
+                        if abs(cur_th - last_th) > LEG_FOLLOW_CONE_DEG:
+                            print(f"[follow] leg_follow 方向拒绝 {last_th:+.0f}->{cur_th:+.0f}°")
+                            hard_fail = True
+                        elif (self._leg_last_u is not None and
+                              abs(u - self._leg_last_u) > LEG_FOLLOW_MAX_JUMP_PX):
+                            print(f"[follow] leg_follow 跳变拒绝 {self._leg_last_u:.0f}->{u:.0f}")
+                            hard_fail = True
+                        else:
+                            self._leg_last_u = u
+                            self._leg_last_t = _now
+                            self._leg_active = True
+                            self.lost = 0
+                            self._lost_s = 0.0
+                            off = max(-MAX_OFFSET, min(MAX_OFFSET, u - FCX))
+                            fwd = LEG_FOLLOW_SPD
+                            ratio = min(abs(off) / MAX_OFFSET, 1.0)
+                            slow = int(fwd - ratio * (fwd - LEG_FOLLOW_MIN_SPD))
+                            if off < 0:
+                                left, right = slow, fwd
+                            else:
+                                left, right = fwd, slow
+                            self._diff(left, right)
+                            return "DIFF", f"L{left}R{right}", {
+                                "state": "leg_follow", "leg_u": round(u, 1),
+                                "score": cue.get("score"), "src": cue.get("src")}
+                    if hard_fail:
+                        self.send_cmd("STOP")
+                        self._leg_active = False
+                        self._leg_last_u = None
+                        self._leg_last_t = 0.0
+                        return "STOP", 0, {"state": "wait_owner", "why": "leg_gate"}
+                    if self._leg_active:
+                        # 短暂丢失(<0.4s)先 hold; 超过则 STOP 回 wait(不后退搜索)
+                        if self._leg_last_t and (_now - self._leg_last_t) <= LEG_FOLLOW_LOST_S:
+                            return None, None, {"state": "leg_hold"}
+                        self.send_cmd("STOP")
+                        self._leg_active = False
+                        self._leg_last_u = None
+                        self._leg_last_t = 0.0
+                        return "STOP", 0, {"state": "wait_owner", "why": "leg_lost"}
+                elif self._leg_active:
+                    # TTL 过期 → STOP 回 wait
+                    self.send_cmd("STOP")
+                    self._leg_active = False
+                    self._leg_last_u = None
+                    self._leg_last_t = 0.0
+                    return "STOP", 0, {"state": "wait_owner", "why": "leg_ttl"}
             self.lost += 1
             self._lost_s += _dt
             # 丢人: 先小幅后退找人(配合云台搜索), 不是只靠云台摇摆

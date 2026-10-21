@@ -129,6 +129,12 @@ details summary{cursor:pointer;color:#8b949e;font-size:13px;margin:6px 0}
     <button class="d" onclick="setTurn(1)">T4 passby：开</button>
     <span id="turnState" class="small"></span>
   </div>
+  <div class="row" style="margin-top:8px">
+    <span class="small">腿跟（极限距离）</span>
+    <button class="d" onclick="setLeg(0)">关（默认）</button>
+    <button class="y" onclick="setLeg(1)">开（需验证）</button>
+    <span id="legState" class="small"></span>
+  </div>
   <div class="row" style="margin-top:10px">
     <button class="g" onclick="applyMotion()">应用</button>
     <button class="d" onclick="preset('heavy')">重载档</button>
@@ -323,6 +329,7 @@ async function loadMotion(){
     $('mYawK').value = d.YAW_K;
     $('mWdes').value = d.W_DES_GAIN;
     $('turnState').textContent = '当前: ' + (d.TURN_ENABLED ? '开' : '关');
+    $('legState').textContent = '当前: ' + (d.LEG_FOLLOW_ENABLED ? '开' : '关');
     $('motion').textContent = JSON.stringify(d, null, 1);
   } catch(e){ $('motion').textContent = '读取失败'; }
 }
@@ -339,6 +346,12 @@ async function setTurn(on){
   const d = await jpost('/motion/config', {TURN_ENABLED: on});
   $('motion').textContent = JSON.stringify(d, null, 1);
   $('turnState').textContent = '当前: ' + (on ? '开' : '关');
+}
+async function setLeg(on){
+  if (on && !confirm('腿跟会放宽 L2（仅 1 人 / 3s TTL / 腿带门控）。确认开启？')) return;
+  const d = await jpost('/motion/config', {LEG_FOLLOW_ENABLED: on});
+  $('motion').textContent = JSON.stringify(d, null, 1);
+  $('legState').textContent = '当前: ' + (on ? '开' : '关');
 }
 async function preset(which){  const p = which === 'heavy'
     ? {BASE_SPD:245, MIN_SPD:155, PIVOT_PWM:240, MANUAL_FWD_SPD:255,
