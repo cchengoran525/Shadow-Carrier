@@ -118,13 +118,19 @@ def pick_safe_spot(grid_path):
     if free:
         cand = [_b(x) for x in free]
         away = [b for b in cand if all(_adiff(b, db) > 45 for db in door_b)]
-        return min(away or cand, key=abs), "free"
-
-    # 回退 2: 只有门 → 取**背离门**的方向（绝不能朝门走）
+        if away:
+            return min(away, key=abs), "free"
+        # 全部自由方向都落在门锥内 → 不能"朝门走", 落到回退 2 找背离门的方向
+    # 回退 2: 背离**所有**门（不只看最近那扇, 防"背离 A 门 = 朝 B 门"）;
+    #         若门把四周全占了、找不到 ≥±45° 净空 → 返回 None(GOTO_SAFE 无参考 → 原地不动)。
     if door_b:
-        d = min(doors, key=lambda o: abs(o.get("bearing_deg", 180)))
-        b = ((d["bearing_deg"] + 180) + 180) % 360 - 180
-        return b, f"away_from_door@{d.get('dist_m', -1)}m"
+        d = min(doors, key=lambda o: abs(o.get("bearing_deg") or 180))
+        cands = ([((db + 180) + 180) % 360 - 180 for db in door_b]
+                 + [s * 45.0 for s in range(8)])   # 门反方向 + 8 个扇区中心
+        best = max(cands, key=lambda b: min(_adiff(b, db) for db in door_b))
+        if min(_adiff(best, db) for db in door_b) > 45:
+            return best, f"away_from_door@{d.get('dist_m', -1)}m"
+        return None, "无安全方向(门环绕)"
     return None, "无自由方向"
 
 

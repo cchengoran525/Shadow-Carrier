@@ -75,5 +75,28 @@ check("T5 过期 → None", b is None and "过期" in why, "%s %s" % (b, why))
 b, why = hri_state.pick_safe_spot(os.path.join(TMP, "nope.json"))
 check("T6 缺失 → None", b is None and "不可读" in why, "%s %s" % (b, why))
 
+# T7 自由方向全在门锥内 → 不得退回"朝门"; 应改走背离门
+write({"ts": time.time(),
+       "map": {"doors": [{"bearing_deg": 0, "dist_m": 3.0, "age_s": 1}], "free_sectors": []},
+       "free_directions_deg": [0.0, 30.0]})
+b, why = hri_state.pick_safe_spot(GRID)
+check("T7 自由方向全在门锥 → 不朝门", b is not None and abs(((b + 180) % 360) - 180) > 45 and why.startswith("away_from_door"),
+      "%s %s" % (b, why))
+
+# T8 双门 0°/180° → 不能"背离 A = 朝 B"; 应选净空 ≥45° 的方向
+write({"ts": time.time(), "sector_scores": {"confident": False},
+       "map": {"doors": [{"bearing_deg": 0, "age_s": 1}, {"bearing_deg": 180, "age_s": 1}],
+               "free_sectors": []}})
+b, why = hri_state.pick_safe_spot(GRID)
+check("T8 双门 → 不朝任一扇门", b is not None and min(abs(((b - d + 180) % 360) - 180) for d in (0, 180)) >= 45,
+      "%s %s" % (b, why))
+
+# T9 四门把四周占满(每 45° 都有门) → 无 ≥45° 净空 → 原地不动(None), 不赌一个方向
+write({"ts": time.time(), "sector_scores": {"confident": False},
+       "map": {"doors": [{"bearing_deg": d, "age_s": 1} for d in (0, 90, 180, 270)],
+               "free_sectors": []}})
+b, why = hri_state.pick_safe_spot(GRID)
+check("T9 门环绕 → 原地不动", b is None and "无安全方向" in why, "%s %s" % (b, why))
+
 print("\n== %d passed, %d failed ==" % (len(PASS), len(FAIL)))
 sys.exit(1 if FAIL else 0)
