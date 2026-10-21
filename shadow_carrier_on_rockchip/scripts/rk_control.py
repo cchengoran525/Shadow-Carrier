@@ -609,6 +609,9 @@ def _publish_follow_status(state, cmd, val, info):
             for k in ("offset", "lost", "owner", "phase", "turn_deg", "smooth_h"):
                 if k in info:
                     d[k] = info[k]
+        with obs_lock:
+            d["obs_blocked"] = bool(obs_state.get("blocked"))
+            d["obs_cm"] = obs_state.get("cm")
         tmp = FOLLOW_STATUS + ".tmp"
         with open(tmp, "w") as f:
             json.dump(d, f)

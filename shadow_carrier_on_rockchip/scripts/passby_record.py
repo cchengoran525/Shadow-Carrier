@@ -84,7 +84,10 @@ def record(path, stop_event, rate=10.0, api=DEFAULT_API, on_sample=None, log=pri
                    "parked": None if not hs else hs.get("parked"),
                    "follow_fresh": fs_fresh,
                    "follow_state": None if not fs_fresh else fs.get("state"),
-                   "follow_cmd": None if not fs_fresh else fs.get("cmd")}
+                   "follow_cmd": None if not fs_fresh else fs.get("cmd"),
+                   "follow_val": None if not fs_fresh else fs.get("val"),
+                   "obs_blocked": None if not fs_fresh else fs.get("obs_blocked"),
+                   "obs_cm": None if not fs_fresh else fs.get("obs_cm")}
             try:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
                 f.flush()

@@ -207,6 +207,11 @@ def main():
         print(f"   命令停止段(≥0.3s): {len(long_stops):>3} 段, 最长 {max_stop:.2f}s   [阈值 ≤1.0s]")
     else:
         print("   命令停止段       : 无 follow_status(旧录制/手动), 需视频手判")
+    if any(r.get("obs_blocked") is not None for r in recs):
+        nobs = sum(1 for r in recs if r.get("obs_blocked"))
+        cms = [r.get("obs_cm") for r in recs if isinstance(r.get("obs_cm"), (int, float)) and r.get("obs_cm", -1) > 0]
+        med = sorted(cms)[len(cms)//2] if cms else None
+        print(f"   超声 OBS 阻挡    : {100.0*nobs/len(recs):5.1f}% 段, cm 中位 {med}")
     for s in switches[:10]:
         print(f"      @{s[0]:.1f}s {s[1]} {s[2]}→{s[3]}px")
     if dir_pct is None:
