@@ -1,21 +1,30 @@
 #!/bin/bash
 # C3 USB watchdog: 侦测 ESP32-C3 (303a:1001) 异常并尽量软件恢复(C3 老毛病: 掉线要插拔).
-#  - 设备仍在 USB 但软链/服务异常 -> usbreset 复位端口(免插拔)
-#  - 设备从 USB 完全消失 -> 先记日志; 持续 ABSENT 后做 **xHCI 控制器深度复位**
-#    (unbind/bind C3 所在控制器; 2026-10-21 实测: C3 1s 内重枚举, 相机在另一控制器不受影响)
-#  - 深度复位也救不了"真掉电" -> 仍需硬件(独立 5V/可控 VBUS/hub); 见 README
+#
+# 恢复阶梯 (从轻到重):
+#   1. 设备在 USB、但软链/服务异常 -> usbreset
+#   2. 设备完全不在总线(但仍供电) -> xHCI 控制器深度复位 (unbind/bind)
+#   3. 深度复位仍无效(可能真掉电) -> 可控 VBUS 电源循环 (GPIO / uhubctl / 自定义命令)
+#
+# VBUS 后端(三选一, 都不配则跳过):
+#   C3_VBUS_GPIO=<gpio号>  C3_VBUS_ACTIVE=1|0   # sysfs GPIO 控 MOSFET/load switch
+#   C3_HUB_LOC=<bus> C3_HUB_PORT=<port>          # uhubctl -l .. -p .. -a cycle
+#   C3_VBUS_CMD='<shell命令>'                    # 自定义(命令自己完成断电/上电)
+# 可选: C3_VBUS_OFF_S=2 (断电秒数), C3_VBUS_SETTLE_S=3 (上电后等待)
+#
+# 自检: c3_watchdog.sh --selftest-vbus   # 只跑一次 VBUS 钩子(不进入主循环)
 LOG=/var/log/c3_watchdog.log
 INTERVAL=3
 MISS_THRESHOLD=2
-ABSENT_LOG_EVERY=60          # absent 时每 60s 记一次(避免 6s 刷屏)
+ABSENT_LOG_EVERY=60
 C3_XHCI="${C3_XHCI:-xhci-hcd.4.auto}"   # 本板 C3 在 usbdrd/fcc00000.dwc3 (bus5)
-DEEP_RESET_AFTER="${DEEP_RESET_AFTER:-30}"      # 持续 absent 多少秒后深度复位
-DEEP_RESET_COOLDOWN="${DEEP_RESET_COOLDOWN:-60}" # 两次深度复位最小间隔
-DEEP_RESET="${DEEP_RESET:-1}"                   # 0=关闭深度复位
+DEEP_RESET_AFTER="${DEEP_RESET_AFTER:-30}"
+DEEP_RESET_COOLDOWN="${DEEP_RESET_COOLDOWN:-60}"
+DEEP_RESET="${DEEP_RESET:-1}"
 
 log() { echo "$(date '+%F %T') $*" >> "$LOG"; }
 
-find_c3() {   # -> USB 设备名如 5-1
+find_c3() {
   for d in /sys/bus/usb/devices/*/; do
     [ -f "$d/idVendor" ] || continue
     if [ "$(cat "$d/idVendor" 2>/dev/null)" = "303a" ] && \
@@ -26,16 +35,15 @@ find_c3() {   # -> USB 设备名如 5-1
   return 1
 }
 
-reset_c3() {  # usbreset 指定设备 (用法: usbreset BBB/DDD)
-  local name="$1"
-  local bus dev
+reset_c3() {
+  local name="$1" bus dev
   bus=$(printf "%03d" "$(cat "/sys/bus/usb/devices/$name/busnum" 2>/dev/null)")
   dev=$(printf "%03d" "$(cat "/sys/bus/usb/devices/$name/devnum" 2>/dev/null)")
   log "reset via usbreset $bus/$dev ($name)"
   usbreset "$bus/$dev" >>"$LOG" 2>&1
 }
 
-deep_reset() {  # C3 完全不在总线时, 复位它所在的 xHCI 控制器(不影响另一控制器的相机)
+deep_reset() {
   [ "$DEEP_RESET" = "1" ] || return 1
   local drv=/sys/bus/platform/drivers/xhci-hcd
   [ -e "$drv/unbind" ] || { log "deep reset skipped: no $drv"; return 1; }
@@ -52,7 +60,49 @@ deep_reset() {  # C3 完全不在总线时, 复位它所在的 xHCI 控制器(�
   return 1
 }
 
-snapshot() {  # absent 快照: 记录当前 USB 树 + dmesg 尾部, 便于事后定位
+power_cycle() {
+  local off="${C3_VBUS_OFF_S:-2}" settle="${C3_VBUS_SETTLE_S:-3}"
+  # 1) 自定义命令
+  if [ -n "${C3_VBUS_CMD:-}" ]; then
+    log "vbus cycle via C3_VBUS_CMD"
+    sh -c "$C3_VBUS_CMD" >>"$LOG" 2>&1
+    sleep "$settle"
+    return 0
+  fi
+  # 2) uhubctl
+  if [ -n "${C3_HUB_LOC:-}" ] && [ -n "${C3_HUB_PORT:-}" ]; then
+    if command -v uhubctl >/dev/null 2>&1; then
+      log "vbus cycle via uhubctl -l $C3_HUB_LOC -p $C3_HUB_PORT"
+      uhubctl -l "$C3_HUB_LOC" -p "$C3_HUB_PORT" -a cycle -d "$off" >>"$LOG" 2>&1
+      sleep "$settle"
+      return 0
+    fi
+    log "uhubctl configured but not installed; skip"
+  fi
+  # 3) sysfs GPIO
+  if [ -n "${C3_VBUS_GPIO:-}" ]; then
+    local g="/sys/class/gpio/gpio${C3_VBUS_GPIO}"
+    local active="${C3_VBUS_ACTIVE:-1}"
+    local on="$active" off_gpio=$((1 - active))
+    if [ ! -d "$g" ]; then
+      echo "${C3_VBUS_GPIO}" > /sys/class/gpio/export 2>>"$LOG"
+      sleep 0.2
+    fi
+    if [ -d "$g" ]; then
+      echo out > "$g/direction" 2>>"$LOG"
+      log "vbus cycle via GPIO ${C3_VBUS_GPIO} (active=${active}, off=${off_gpio})"
+      echo "$off_gpio" > "$g/value" 2>>"$LOG"
+      sleep "$off"
+      echo "$on" > "$g/value" 2>>"$LOG"
+      sleep "$settle"
+      return 0
+    fi
+    log "GPIO ${C3_VBUS_GPIO} export failed; skip"
+  fi
+  return 1
+}
+
+snapshot() {
   {
     echo "--- snapshot $(date '+%F %T') ---"
     lsusb -t 2>&1
@@ -60,12 +110,25 @@ snapshot() {  # absent 快照: 记录当前 USB 树 + dmesg 尾部, 便于事后
   } >> "$LOG"
 }
 
-log "watchdog started (xHCI=$C3_XHCI, deep_reset=$DEEP_RESET)"
+vbus_configured() {
+  [ -n "${C3_VBUS_CMD:-}" ] || \
+  { [ -n "${C3_HUB_LOC:-}" ] && [ -n "${C3_HUB_PORT:-}" ]; } || \
+  [ -n "${C3_VBUS_GPIO:-}" ]
+}
+
+# 自检模式: 只跑一次 VBUS 钩子
+if [ "${1:-}" = "--selftest-vbus" ]; then
+  log "selftest: vbus configured=$(vbus_configured && echo yes || echo no)"
+  if power_cycle; then log "selftest: vbus hook ran"; exit 0; fi
+  log "selftest: vbus hook not configured"; exit 1
+fi
+
+log "watchdog started (xHCI=$C3_XHCI, deep_reset=$DEEP_RESET, vbus=$(vbus_configured && echo yes || echo no))"
 miss=0
 present=0
 absent_since=0
 last_absent_log=0
-last_deep=0
+last_recover=0
 while :; do
   name=$(find_c3) || name=""
   now=$(date +%s)
@@ -95,16 +158,25 @@ while :; do
           systemctl restart rk-control 2>>"$LOG"
         fi
       else
-        # 完全不在总线: 节流日志 + 到点做 xHCI 深度复位
         if [ $((now - last_absent_log)) -ge "$ABSENT_LOG_EVERY" ]; then
           log "C3 absent from USB (likely power loss / not enumerated) - waiting"
           snapshot
           last_absent_log=$now
         fi
         if [ $((now - absent_since)) -ge "$DEEP_RESET_AFTER" ] && \
-           [ $((now - last_deep)) -ge "$DEEP_RESET_COOLDOWN" ]; then
-          deep_reset
-          last_deep=$now
+           [ $((now - last_recover)) -ge "$DEEP_RESET_COOLDOWN" ]; then
+          recovered=0
+          [ "$DEEP_RESET" = "1" ] && deep_reset && recovered=1
+          if [ "$recovered" -eq 0 ]; then
+            if power_cycle; then
+              if find_c3 >/dev/null && [ -e /dev/c3_controller ]; then
+                log "recovered via VBUS power cycle"
+              else
+                log "still absent after VBUS power cycle"
+              fi
+            fi
+          fi
+          last_recover=$now
         fi
       fi
       miss=0

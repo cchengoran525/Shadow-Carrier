@@ -105,4 +105,32 @@ echo xhci-hcd.4.auto > /sys/bus/platform/drivers/xhci-hcd/bind
 - **可控 VBUS/端口电源**（GPIO+MOSFET 或支持 `uhubctl` 的 hub）→ 看门狗断电 1s 再上电，强制重新枚举；
 - 或独立 5V + 大电容/换线，减少掉电本身。
 
+## 可控 VBUS / 端口电源（可选，治"真掉电"）
+
+看门狗已内置 3 种后端；配置后，在 xHCI 深度复位仍无效时会自动做一次电源循环。用 systemd drop-in 配（无需改脚本）：
+
+```bash
+sudo mkdir -p /etc/systemd/system/c3-watchdog.service.d
+sudo tee /etc/systemd/system/c3-watchdog.service.d/vbus.conf >/dev/null <<'EOF'
+[Service]
+# 三选一：
+# 1) GPIO 控 MOSFET/load switch（sysfs；C3_VBUS_ACTIVE=1 高有效，0 低有效）
+Environment=C3_VBUS_GPIO=123
+Environment=C3_VBUS_ACTIVE=1
+# 2) uhubctl 支持每端口断电的 hub
+#Environment=C3_HUB_LOC=5
+#Environment=C3_HUB_PORT=1
+# 3) 自定义命令（命令自己完成断电/上电）
+#Environment=C3_VBUS_CMD=/usr/local/bin/c3_power_cycle.sh
+Environment=C3_VBUS_OFF_S=2
+Environment=C3_VBUS_SETTLE_S=3
+EOF
+sudo systemctl daemon-reload && sudo systemctl restart c3-watchdog
+```
+
+- **GPIO 必须驱动 MOSFET/负载开关**，不要用 GPIO 直接给 C3 供电（电流不够/会烧）。
+- 自检：`sudo c3_watchdog.sh --selftest-vbus` → 日志出现 `vbus cycle via ...`；正常启动日志会标 `vbus=yes/no`。
+- 日志顺序：`deep reset xHCI ...` →（仍失败）`vbus cycle via ...` → `recovered via VBUS power cycle`。
+
+
 
