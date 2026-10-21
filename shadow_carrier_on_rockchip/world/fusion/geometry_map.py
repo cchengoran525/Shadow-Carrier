@@ -162,7 +162,18 @@ class RollingMap:
             free.append({"sector": sec, "ring": ring, "bearing_deg": sec * 45,
                          "age_s": round(now - t, 1)})
         free.sort(key=lambda x: x["age_s"])
-        return {"doors": doors, "free_sectors": free,
+        # ⚠️ 10-22 修：objects 原先没进 summary → score_map 拿不到家电/person/硬禁区,
+        # 生产里 APPLIANCE / CLASS_W("person") / 门-家电"路中间" 全部空转（只有单测喂 objects 才生效）。
+        objects = []
+        for o in self.objects:
+            b = o.get("bearing_deg")
+            if b is None:
+                continue
+            objects.append({"cls": o["cls"], "bearing_deg": b,
+                            "dist_m": o.get("dist_m"), "sector": _sector(b),
+                            "hits": o["hits"], "age_s": round(now - o["last_seen"], 1)})
+        objects.sort(key=lambda x: x["age_s"])
+        return {"doors": doors, "free_sectors": free, "objects": objects,
                 "frames": self.frames, "dist_valid": self.dist_valid,
                 "pose_calib_tilt_cmd": self.pose_calib_tilt_cmd,
                 "age_s": round(now - self.ts_updated, 1) if self.ts_updated else None,

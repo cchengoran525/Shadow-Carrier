@@ -12,6 +12,14 @@ v2 修复（2026-10-11，[世界] 审核后，逐条对应审核发现）:
   E 缺 margin          → 暴露 margin(best-second), confident 要求 margin≥MARGIN_MIN
   F blind 撞 mask      → blind 加成跳过 masked 扇区; mask 分数按扇区去重
 
+2026-10-22 路中间/接线修复（机主指派复核）:
+  旧"路中间"取两个 bearing 的**角平分线**, 只有等距时才等于"连线中点"; 门 3~5m、家电
+  1~2m 时会罚到两者之间的空地, 真正被走的路反而免罚; 门↔远家电(近反向)还被一刀切跳过。
+  → 改为**距离感知向量中点**(需 dist_valid + dist_m), 中点距车 <PATH_MID_MIN_M 视为
+    穿过车跳过; 距离不可信时退回角平分线并在 reasons["path_bisector"] 标注。
+  另: 生产者 RollingMap.summary() 此前不输出 objects → 生产里 appliance/person/硬禁区/
+  path(与家电) 全部空转, 已补(见 geometry_map.py)。
+
 输入(全部可选除 doors/free_sectors): 
   {"doors":[{bearing_deg,age_s,state?}],
    "free_sectors":[{sector,ring?,age_s}],          # ring 0/1/2, 缺省 0
@@ -29,6 +37,7 @@ N_SECTORS = 8
 SECTOR_DEG = 45.0
 MARGIN_MIN = 0.20         # best 与次优的最小间距（confident 门槛）
 OPPOSITE_GUARD = 0.25     # 热点对合成向量模长下限（低于=近反向, 跳过）
+PATH_MID_MIN_M = 0.5      # 连线中点距车体 < 此值 → 这条路穿过车, 无扇区可罚（跳过）
 
 W = {
     "free_near": 1.0,     # 自由扇区加成（近环）
@@ -93,7 +102,8 @@ def _is_free(label):
 
 def score_map(map_summary, grid_polar=None):
     scores = [0.0] * N_SECTORS
-    reasons = {"free": [], "door_pen": [], "appliance": [], "path": [], "wall_back": [],
+    reasons = {"free": [], "door_pen": [], "appliance": [], "path": [], "path_geo": [],
+               "path_bisector": [], "wall_back": [],
                "class_w": [], "gaze": [], "blind": [], "mask": []}
     scale = PENALTY_SCALE.get(map_summary.get("hour_bucket", "default"), 1.0)
 
@@ -113,7 +123,6 @@ def score_map(map_summary, grid_polar=None):
                 reasons["mask"].append(s)
 
     # ---- 类别权重 / 家电（mask 优先, 只加一次）----
-    appliance_secs = []
     for o in objects:
         s = _sector_of(o.get("bearing_deg", 0))
         if s in masked:
@@ -121,18 +130,15 @@ def score_map(map_summary, grid_polar=None):
         if o.get("cls") in APPLIANCE_CLASSES:
             scores[s] += _neg(W["appliance"])
             reasons["appliance"].append(s)
-            appliance_secs.append(s)
         elif o.get("cls") in CLASS_W:
             scores[s] += _neg(CLASS_W[o["cls"]])
             reasons["class_w"].append(s)
 
     # ---- 门（状态化）+ 进出锥 ----
-    door_secs = []
     for d in map_summary.get("doors", []):
         if d.get("age_s", 99) > MAX_AGE_S:
             continue
         s = _sector_of(d.get("bearing_deg", 0))
-        door_secs.append(s)
         scores[s] += _neg(DOOR_STATE_W.get(d.get("state"), W["door"]))
         reasons["door_pen"].append(s)
         for ds in (-1, 1):
@@ -179,18 +185,45 @@ def score_map(map_summary, grid_polar=None):
                 scores[s] += W["wall_back"]
                 reasons["wall_back"].append(s)
 
-    # ---- 路中间（C: 只吃 门+家电; A: 反向对跳过）----
-    hotspots = sorted(set(door_secs + appliance_secs))
-    for i in range(len(hotspots)):
-        for j in range(i + 1, len(hotspots)):
-            a, b = _sector_bearing(hotspots[i]), _sector_bearing(hotspots[j])
-            if _angle_diff(a, b) < SECTOR_DEG:
+    # ---- 路中间（C: 只吃 门+家电; 10-22 修：按"连线中点"算, 距离不可信才退角平分线）----
+    # 旧实现取两个 bearing 的**角平分线**, 只有当两个热点距离相近时才等于连线中点;
+    # 门通常 3~5m、家电 1~2m → 角平分线会落到两者之间的"空地", 而真正被走的路
+    # (靠远的那一端)反而没罚。改为向量中点 (x=d·sin b, y=d·cos b), 需 dist_m 可信。
+    hot = {}
+    for d in map_summary.get("doors", []):
+        if d.get("age_s", 99) > MAX_AGE_S:
+            continue
+        hot[_sector_of(d.get("bearing_deg", 0))] = (d.get("bearing_deg", 0), d.get("dist_m"))
+    for o in objects:
+        if o.get("cls") not in APPLIANCE_CLASSES:
+            continue
+        s = _sector_of(o.get("bearing_deg", 0))
+        prev = hot.get(s)
+        if prev is None or (prev[1] is None and o.get("dist_m")):
+            hot[s] = (o.get("bearing_deg", 0), o.get("dist_m"))
+    hs = sorted(hot)
+    dist_ok = bool(map_summary.get("dist_valid", True))
+    for i in range(len(hs)):
+        for j in range(i + 1, len(hs)):
+            b1, d1 = hot[hs[i]]
+            b2, d2 = hot[hs[j]]
+            if _angle_diff(b1, b2) < SECTOR_DEG:
                 continue
-            ar, br = math.radians(a), math.radians(b)
-            vx, vy = (math.cos(ar) + math.cos(br)) / 2, (math.sin(ar) + math.sin(br)) / 2
-            if math.hypot(vx, vy) < OPPOSITE_GUARD:      # A: 近反向对, 中点无意义
-                continue
-            ms = _sector_of(math.degrees(math.atan2(vy, vx)))
+            if dist_ok and d1 and d2 and d1 > 0 and d2 > 0:
+                r1, r2 = math.radians(b1), math.radians(b2)
+                mx = (d1 * math.sin(r1) + d2 * math.sin(r2)) / 2.0
+                my = (d1 * math.cos(r1) + d2 * math.cos(r2)) / 2.0
+                if math.hypot(mx, my) < PATH_MID_MIN_M:
+                    continue          # 中点几乎落在车体上: 这条"路"穿过车, 无扇区可罚
+                ms = _sector_of(math.degrees(math.atan2(mx, my)))
+                reasons["path_geo"].append(ms)
+            else:
+                ar, br = math.radians(b1), math.radians(b2)
+                vx, vy = (math.cos(ar) + math.cos(br)) / 2.0, (math.sin(ar) + math.sin(br)) / 2.0
+                if math.hypot(vx, vy) < OPPOSITE_GUARD:
+                    continue          # A: 近反向对, 角平分线无意义
+                ms = _sector_of(math.degrees(math.atan2(vy, vx)))
+                reasons["path_bisector"].append(ms)
             if ms in masked:
                 continue
             scores[ms] += _neg(W["path"])

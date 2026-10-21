@@ -134,3 +134,40 @@
 - `geometry_daemon.py`：把 `grid_polar` 传给打分器（背墙判定用）
 
 新增输出字段（纯增量）：`margin` / `ranking` / `fallback_masked`。
+
+## 10-22 修复：生产接线 + "路中间"几何（机主指派复核）
+
+> 触发：机主质疑"HIDE 到底是远离门还是门侧？"→ 查代码发现两处**语义/接线**错误。
+> **权重全部未动**（`W` 原值），只改几何算法与数据接线；14 个离线测试文件全 exit 0。
+
+### ① 生产接线 bug：`summary()` 不带 objects → 打分器一半规则空转
+
+`geometry_daemon` 把 `m.summary()` 喂给 `score_map()`，但旧 `summary()` 只输出
+`doors/free_sectors`。于是**生产里** `objects` 恒为空 → 家电惩罚、`CLASS_W["person"]`（10-12
+`hide_occupied` 的修复）、硬禁区 mask、门-家电 "路中间" **全部不生效**；单测因为手喂
+`objects` 才全绿（典型"测试绿、生产空转"）。
+
+- 修复：`geometry_map.summary()` 增 `objects[]{cls, bearing_deg, dist_m, sector, hits, age_s}`
+  （纯增量；grid.json `map{}` 只加字段）
+
+### ② "路中间"其实是角平分线，不是连线中点
+
+旧实现取两热点 bearing 的**圆形均值**，只有两者**等距**时才等于连线中点。门通常 3~5m、
+家电 1~2m → 角平分线落到两者之间的**空地**，真正被走的线（靠近远端点）没罚；而近反向对
+（门↔远家电）被 `OPPOSITE_GUARD` 一刀切跳过 —— 那恰是最忙的一条路。
+
+- 修复：`dist_valid` 且两端有 `dist_m` → **向量中点**（`x=d·sin b, y=d·cos b`）；
+  距离不可信 → 退回角平分线并在 `reasons["path_bisector"]` 标注；中点距车体
+  `< PATH_MID_MIN_M(0.5m)`（这条路穿过车）跳过
+- 新增 reasons 键（纯增量）：`path_geo` / `path_bisector`
+
+### ③ HIDE 落点回退"门优先"= 朝门走（`scripts/hri_state.py`，属 [HRI]）
+
+HIDE 语义是**远离门**（门 = 交互亲和度极高 → 强惩罚），但旧回退直接把**门的方位**
+当安全点 → `GOTO_SAFE <bearing>` 朝门转身+前进 ≤1.5s。
+
+- 修复（机主直接指派跨线修改，请 [HRI] 复核）：回退顺序改为
+  **打分 → 自由方向（排除门 ±45°）→ 背离门**；顺带修 `map.free_sectors`（dict）被
+  `abs()` 的 TypeError
+- 回归：`scripts/test_pick_safe_spot.py`（6 断言）
+

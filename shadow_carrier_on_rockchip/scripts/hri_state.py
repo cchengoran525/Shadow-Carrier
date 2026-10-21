@@ -78,7 +78,12 @@ def iou_ratio(inner, outer):
 
 
 def pick_safe_spot(grid_path):
-    """消费 [世界] grid.json v1: 门优先, 其次最靠正前的自由方向"""
+    """消费 [世界] grid.json v1: 打分优先 → 自由方向 → **背离门**（HIDE=远离门）
+
+    10-22 修（机主指派）：旧版回退顺序是"门优先"，直接把**门的方位**当安全点，
+    `GOTO_SAFE <bearing>` 会**朝门转身+前进 ≤1.5s** —— 与 HIDE 语义相反
+    （README §HIDE 选点：门=交互亲和度极高→强惩罚；验收"靠墙且离门锥、不挡门"）。
+    """
     try:
         with open(os.path.expanduser(grid_path)) as f:
             g = json.load(f)
@@ -92,18 +97,34 @@ def pick_safe_spot(grid_path):
     if sc.get("confident") and (sc.get("best_score") or 0) > 0 \
             and sc.get("best_bearing_deg") is not None:
         return sc["best_bearing_deg"], f"sector_score:{sc['best_score']:.2f}"
-    # 回退: 门优先 -> 自由方向 (兼容 objects[]/free_directions_deg 与 map{})
-    doors = [o for o in g.get("objects", [])
-             if "door" in o.get("cls", "").lower()]
+
+    def _b(x):
+        """自由方向可能是 int/float（free_directions_deg）或 dict（map.free_sectors）"""
+        if isinstance(x, dict):
+            return float(x["sector"]) * 45.0 if x.get("sector") is not None \
+                else float(x.get("bearing_deg", 0))
+        return float(x)
+
+    def _adiff(a, b):
+        return abs(((a - b + 180) % 360) - 180)
+
+    doors = [o for o in g.get("objects", []) if "door" in str(o.get("cls", "")).lower()]
     if not doors:
         doors = [dict(d, cls="door") for d in (g.get("map", {}) or {}).get("doors", [])]
-    if doors:
-        d = min(doors, key=lambda o: abs(o.get("bearing_deg", 180)))
-        return d["bearing_deg"], f"door@{d.get('dist_m', -1)}m"
+    door_b = [d.get("bearing_deg", 180) for d in doors if d.get("bearing_deg") is not None]
+
+    # 回退 1: 自由方向（先排除门 ±45° 内的方向, 再取最靠正前）
     free = g.get("free_directions_deg") or (g.get("map", {}) or {}).get("free_sectors") or []
     if free:
-        b = min(free, key=lambda x: abs(x))
-        return b, "free"
+        cand = [_b(x) for x in free]
+        away = [b for b in cand if all(_adiff(b, db) > 45 for db in door_b)]
+        return min(away or cand, key=abs), "free"
+
+    # 回退 2: 只有门 → 取**背离门**的方向（绝不能朝门走）
+    if door_b:
+        d = min(doors, key=lambda o: abs(o.get("bearing_deg", 180)))
+        b = ((d["bearing_deg"] + 180) + 180) % 360 - 180
+        return b, f"away_from_door@{d.get('dist_m', -1)}m"
     return None, "无自由方向"
 
 

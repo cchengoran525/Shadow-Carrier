@@ -135,5 +135,43 @@ check("T14b 自由点落在干净扇区 → confident 且选中它",
       r["confident"] and r["best_bearing_deg"] == -45.0,
       "scores=%s best=%s conf=%s" % (r["scores"], r["best_bearing_deg"], r["confident"]))
 
+# T15 路中间 = 两热点"连线中点"（10-22 修）：门 0°/4m + 冰箱 90°/1m → 中点 14°(sector0)
+# 旧实现取角平分线 45°(sector1) → 罚到两者之间的空地，真正被走的那条没罚。
+r = S(map_summary={"doors": [{"bearing_deg": 0, "dist_m": 4.0, "age_s": 1}],
+                   "objects": [{"cls": "refrigerator", "bearing_deg": 90, "dist_m": 1.0, "age_s": 1}],
+                   "dist_valid": True})
+check("T15 不等距 → 连线中点(sector0)而非角平分线(sector1)",
+      r["reasons"]["path_geo"] == [0] and r["reasons"]["path"] == [0],
+      "geo=%s path=%s" % (r["reasons"]["path_geo"], r["reasons"]["path"]))
+
+# T16 距离不可信(dist_valid=False) → 退回角平分线, 且显式标注
+r = S(map_summary={"doors": [{"bearing_deg": 0, "dist_m": 4.0, "age_s": 1}],
+                   "objects": [{"cls": "refrigerator", "bearing_deg": 90, "dist_m": 1.0, "age_s": 1}],
+                   "dist_valid": False})
+check("T16 距离不可信 → 角平分线(sector1)并标注",
+      r["reasons"]["path_bisector"] == [1] and r["reasons"]["path_geo"] == [],
+      "bis=%s geo=%s" % (r["reasons"]["path_bisector"], r["reasons"]["path_geo"]))
+
+# T17 近反向但距离差大（门 0°/5m + 饮水机 180°/1m）→ 中点仍在身后 2m, 是真实"路", 不该跳过
+r = S(map_summary={"doors": [{"bearing_deg": 0, "dist_m": 5.0, "age_s": 1}],
+                   "objects": [{"cls": "water dispenser", "bearing_deg": 180, "dist_m": 1.0, "age_s": 1}],
+                   "dist_valid": True})
+check("T17 反向且不等距 → 仍产生 path（中点 sector0）",
+      r["reasons"]["path"] == [0], str(r["reasons"]["path"]))
+
+# T18 集成：RollingMap.summary() 必须带 objects（10-22 修）
+# 旧 summary() 只有 doors/free → 生产里 person/家电/门-家电 path 全部空转（单测喂 objects 才绿）。
+import geometry_map as gm
+m = gm.RollingMap().update({"objects": [{"cls": "person", "bearing_deg": 90, "dist_m": 2.0},
+                                        {"cls": "refrigerator", "bearing_deg": -30, "dist_m": 2.5},
+                                        {"cls": "door", "bearing_deg": 45, "dist_m": 4.0}],
+                            "grid_polar": [[{"label": "free"} for _ in range(8)] for _ in range(3)],
+                            "free_directions_deg": [90.0, 180.0]})
+summ = m.summary()
+r = ss.score_map(summ, grid_polar=[[{"label": "free"} for _ in range(8)] for _ in range(3)])
+check("T18 summary 带 objects → person(-1.2)/家电(-0.8) 生产路径生效",
+      "objects" in summ and r["reasons"]["class_w"] == [2] and r["reasons"]["appliance"] == [7],
+      "keys=%s class_w=%s appliance=%s" % (sorted(summ), r["reasons"]["class_w"], r["reasons"]["appliance"]))
+
 print("\n== %d passed, %d failed ==" % (len(PASS), len(FAIL)))
 sys.exit(1 if FAIL else 0)
