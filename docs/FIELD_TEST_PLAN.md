@@ -330,3 +330,51 @@
 | **[统筹]** | T11 | 合并门、日程、demo 范围裁决 |
 
 > 回执写 `EXCHANGE.md`；验收记录用 §6 表；未过项必须写"下次改什么"。
+
+---
+
+## 10. HRI 实地补充清单（可与 T 系列并行）
+
+> 阈值来自 `scripts/hri_params.json`：**静止 5s → WAIT**；再 **20s → HIDE**；持物近距 **1.2m → RECEIVE**；
+> 快速靠近 **0.8 m/s → YIELD**；RECEIVE 持续后退 **0.8s** 或停滞 **2s** → 退出；主人丢失 **2s** → WAIT。
+> 动作由 `rk_control` 的动作桥执行（`APPROACH / BACK_OFF / GOTO_SAFE`），**只在 `mode=follow` 生效**。
+
+| ID | 场景 | 前置 | 步骤 | 成功标准 |
+|---|---|---|---|---|
+| **H1** | 服务健康 | — | 看 `/tmp/hri_state.log` / `hri_state.json` | 文件 **age <1s**；`state` 随场景变化；`--owner-source file` 生效 |
+| **H2** | WAIT（静止 5s） | T1 成功 | 跟随中主人站定 5s → 再走 | **≤5.5s** 进 WAIT；主人移动 **>0.4m** 后 **≤1s** 回 FOLLOW |
+| **H3** | HIDE 触发（静止 20s） | H2 + grid 新鲜 | 继续站定到 20s | 进 HIDE；`action=GOTO_SAFE <bearing>`；`parked=true`；`grid.json` age <60s |
+| **H4** | GOTO_SAFE 执行 | H3 | 观察车转向+前移（≤1.5s） | 转向**朝安全方位**、不反向；不撞；到位停；**3/3** |
+| **H5** | RECEIVE 触发 | 车在 WAIT/HIDE | 主人持水瓶/玩偶，正前方 **1.2–1.5m** 缓近 | **≤1s** 进 RECEIVE；`action=APPROACH` |
+| **H6** | APPROACH 执行 | H5 | 车向前合拢 | 最终 **0.3–0.5m** 停；不撞；OBS ≤35cm 能中止 |
+| **H7** | RECEIVE 退出 | H6 | 主人持续后退 0.8s；或原地不动 2s | 回 WAIT；冷却 **6s** 内不重复触发 |
+| **H8** | YIELD / BACK_OFF | 车在 WAIT/HIDE | 主人以 **>0.8 m/s** 快速靠近 | 进 YIELD；`action=BACK_OFF`；车后退 **0.6s** 后停 |
+| **H9** | 丢人/中途中止 | RECEIVE 中 | 主人出画 2s；或按 `/stop` | RECEIVE→WAIT；车立即停；不继续前冲 |
+
+### 10.1 与 T 系列的合并跑法（一次布场，按这个顺序）
+
+```
+T0 链路 → T0b 原地转 → T1 认主 → T8 手动
+        ↓
+T2 直线 → T3 转弯
+        ↓
+T6 静止（同时验 H2：WAIT）
+        ↓
+T9 HIDE（同时验 H3+H4：20s → GOTO_SAFE）
+        ↓
+T10 RECEIVE（同时验 H5+H6+H7：持物 → APPROACH → 退出）
+        ↓
+T4 passby（核心，8~12 条）+ H9（出画/急停）
+        ↓
+T7 遮挡 + H8（快速靠近 → BACK_OFF）
+        ↓
+T11 八分镜全串
+```
+
+### 10.2 注意事项
+- **所有 HRI 动作只在 `mode=follow`**；manual 下不消费，别在 manual 里等它动。
+- **先 T1 enroll**：`owner.source=file` 时没有 `owner.json`，HRI 不会触发任何状态。
+- **HIDE 前看 grid**：`~/world_lab/fusion/grid.json` 的 `ts` <60s；停驻后 `geometry-parked.timer` 会刷新。
+- **GOTO_SAFE 首次必看方向**：`bearing` 右正 → 车应右转；反了改 `HRI_BEARING_TO_YAW_SIGN`。
+- **HIDE 中主人出画不中断**（设计如此）；RECEIVE 中出画 2s 才回 WAIT。
+- 动作桥是有界脉冲：APPROACH ≤3s、BACK_OFF 0.6s、GOTO_SAFE 转向 ≤3s + 前进 ≤1.5s；异常先 `/stop`。
