@@ -256,8 +256,8 @@ class OwnerProfile:
         return w_c * self.color_sim(_roi_hist(hsv, box)) \
              + w_a * self.aspect_sim(_aspect(box))
 
-    def find_leg_band(self, img_bgr):
-        """画面下半带的"下装(腿)"颜色匹配 → (u_px, score) 或 None。
+    def find_leg_band_info(self, img_bgr):
+        """画面下半带的"下装(腿)"匹配 → {u,score,area,n} 或 None (n=候选数)。
 
         用途: 主人近距擦身时画面里只剩腿(无头无躯干), YOLO 出不了 person → 用
         颜色反投影 + 连通域找出腿的横向位置, 给**底盘转向通道**一个方向权重,
@@ -280,7 +280,7 @@ class OwnerProfile:
             bp = cv2.medianBlur(bp, 5)
             _, thr = cv2.threshold(bp, LEG_BP_THRESH, 255, cv2.THRESH_BINARY)
             n, _lab, stats, _cent = cv2.connectedComponentsWithStats(thr, 8)
-            best = None
+            cands = []
             for i in range(1, n):
                 x, y, ww, hh, area = (int(stats[i][0]), int(stats[i][1]),
                                       int(stats[i][2]), int(stats[i][3]),
@@ -296,11 +296,21 @@ class OwnerProfile:
                 sim = 1.0 - float(cv2.compareHist(self.leg_hist, hist,
                                                   cv2.HISTCMP_BHATTACHARYYA))
                 score = sim * min(1.0, area / (2.0 * LEG_MIN_AREA))
-                if best is None or score > best[1]:
-                    best = (x + ww / 2.0, score)
-            return best
+                cands.append({"u": x + ww / 2.0, "score": score, "area": area})
+            if not cands:
+                return None
+            best = max(cands, key=lambda c: c["score"])
+            return {"u": float(best["u"]), "score": float(best["score"]),
+                    "area": int(best["area"]), "n": len(cands)}
         except Exception:
             return None
+
+    def find_leg_band(self, img_bgr):
+        """兼容旧接口: (u_px, score) 或 None"""
+        info = self.find_leg_band_info(img_bgr)
+        if not info:
+            return None
+        return (info["u"], info["score"])
 
 
 def read_recent_frame():

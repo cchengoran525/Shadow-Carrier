@@ -97,7 +97,20 @@ def main():
     assert info.get("state") != "leg_follow", (tag, val, info)
     print(f"[PASS] 强锁存在 → 正常跟随  state={info.get('state')}")
 
-    print("\nALL PASS (7/7)")
+    # 8) 累计里程上限 0.6m → STOP/wait (不只看时间)
+    c, cmds = make(lambda: {"u": 320, "score": 0.6, "src": "leg_band"})
+    hit = None
+    for i in range(60):
+        c._last_t = time.monotonic() - 0.1     # 模拟 10Hz
+        c._leg_travel_t = time.monotonic() - 0.1   # 里程死推同样按 10Hz
+        tag, val, info = c.tick()
+        if info.get("why") == "leg_travel_cap":
+            hit = i
+            break
+    assert hit is not None and tag == "STOP", (hit, tag, info)
+    print(f"[PASS] 累计里程 ≥0.6m → STOP/wait (第{hit}拍, why=leg_travel_cap)")
+
+    print("\nALL PASS (8/8)")
 
 
 if __name__ == "__main__":

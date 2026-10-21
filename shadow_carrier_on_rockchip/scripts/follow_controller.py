@@ -133,6 +133,8 @@ LEG_FOLLOW_MIN_SPD = 120
 LEG_FOLLOW_MAX_JUMP_PX = 120
 LEG_FOLLOW_LOST_S = 0.4
 LEG_FOLLOW_CONE_DEG = 25.0
+LEG_FOLLOW_MAX_TRAVEL_M = 0.6   # 累计前进上限(无编码器保守死推; 不只看时间)
+LEG_FOLLOW_MPS_EST = 0.30       # PWM≈140 粗略速度(m/s); 编码器到位后替换
 BLIND_MAX_S = 1.2        # 纯预测盲区的桥接时长(BLIND 是"桥": 转估计该转的那点就行,
 #                          有目的的搜索交给 SEARCH; 角度上限见 PIVOT_BLIND_MAX_DEG)
 SEARCH_STEP_DEG = 90.0   # 定向扫描每档角度
@@ -192,6 +194,8 @@ class FollowController:
         self._leg_last_u = None
         self._leg_last_t = 0.0
         self._leg_active = False
+        self._leg_travel = 0.0    # 腿跟累计里程(死推, 防长时间盲走)
+        self._leg_travel_t = 0.0
         # bearing_of_fn: 像素列 → 车体系方位角(度)。实机默认走 state/decoder(真机内参);
         # 仿真注入自己投影用的内参, 否则 CX/fx 不一致会引入常数偏置+尺度误差(实测 +3°/15%)。
         self.bearing_of_fn = bearing_of_fn
@@ -725,6 +729,8 @@ class FollowController:
 
         person = self._fetch_person()
         if person is not None:
+            self._leg_travel = 0.0   # 强锁恢复 → 腿跟里程清零
+        if person is not None:
             # 腿跟 TTL 用: 与转向通道解耦(TURN_ENABLED=False 时 _steer 不跑)
             self._last_strong_t = _now
             self._leg_last_u = None
@@ -779,6 +785,19 @@ class FollowController:
                                 left, right = slow, fwd
                             else:
                                 left, right = fwd, slow
+                            dt_leg = (max(0.0, min(0.3, _now - self._leg_travel_t))
+                                      if self._leg_travel_t else 0.0)
+                            self._leg_travel_t = _now
+                            self._leg_travel += LEG_FOLLOW_MPS_EST * dt_leg
+                            if self._leg_travel >= LEG_FOLLOW_MAX_TRAVEL_M:
+                                self.send_cmd("STOP")
+                                self._leg_active = False
+                                self._leg_last_u = None
+                                self._leg_last_t = 0.0
+                                print(f"[follow] leg_follow 累计 {self._leg_travel:.2f}m "
+                                      f"≥ 上限 → STOP")
+                                return "STOP", 0, {"state": "wait_owner",
+                                                   "why": "leg_travel_cap"}
                             self._diff(left, right)
                             return "DIFF", f"L{left}R{right}", {
                                 "state": "leg_follow", "leg_u": round(u, 1),

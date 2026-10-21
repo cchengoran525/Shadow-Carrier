@@ -412,6 +412,9 @@ def _weak_cue():
     except Exception:
         return None
 
+_LEG_AREA_STATE = [None]   # (ts, area): 腿带面积快增检测
+
+
 def _leg_follow_cue():
     """腿跟硬门(统筹 2026-10-22 A): mode=follow, HRI=FOLLOW, 仅1人,
     OBS 有效且 >35cm、dist>=0.7、腿带 score>=0.35。
@@ -457,13 +460,25 @@ def _leg_follow_cue():
         img = owner_id.read_recent_frame()
         if img is None:
             return None
-        got = prof.find_leg_band(img)
-        if not got:
+        info = prof.find_leg_band_info(img)
+        if not info:
             return None
-        u, score = got
-        if float(score) < 0.35:
+        # 同屏只允许一个腿带候选: 多条同色竖条 → 无法判定哪条是主人 → 拒绝
+        if int(info.get("n", 0)) != 1:
+            print(f"[leg_follow] 腿带候选数={info.get('n')} ≠1 → 拒绝")
             return None
-        return {"u": float(u), "score": float(score), "src": "leg_band"}
+        if float(info["score"]) < 0.35:
+            return None
+        # 腿带面积快速增大 = 正在逼近(可能不是主人) → 拒绝; 0.6s 窗口
+        now = time.time()
+        prev = _LEG_AREA_STATE[0]
+        _LEG_AREA_STATE[0] = (now, float(info.get("area", 0)))
+        if prev and (now - prev[0]) <= 0.6 and prev[1] > 0:
+            if float(info.get("area", 0)) > prev[1] * 1.35:
+                print("[leg_follow] 腿带面积快速增大 → 拒绝(疑似逼近)")
+                return None
+        return {"u": float(info["u"]), "score": float(info["score"]),
+                "src": "leg_band"}
     except Exception:
         return None
 

@@ -60,6 +60,18 @@ no_leg = owner_id.OwnerProfile(leg, 0.4, 10, 120.0, None)
 assert owner_id.weak_cue(profile=no_leg, dets=[], img_bgr=img) is None
 print("  [PASS] 腿带匹配给方向; 无该颜色/无模板时不出线索")
 
+print("\n== ②b 同屏腿带候选计数 (腿跟单候选门) ==")
+two = np.full((480, 640, 3), 40, np.uint8)
+two[300:470, 80:150] = (30, 200, 220)          # 左侧同色"下装"
+two[300:470, 420:500] = (30, 200, 220)         # 右侧同色"下装"
+info = prof.find_leg_band_info(two)
+assert info and info["n"] == 2, info           # 两条候选 → rk_control 腿跟门应拒绝
+single = prof.find_leg_band_info(img)
+assert single and single["n"] == 1 and single["area"] > 0, single
+assert owner_id.OwnerProfile.find_leg_band(prof, img) is not None   # 旧接口兼容
+print(f"  双候选 n={info['n']} / 单候选 n={single['n']} area={single['area']}")
+print("  [PASS] 单候选门可判定; 旧接口兼容")
+
 print("\n== ③ 护栏: 弱线索不产生主人候选 ==")
 # 只有低置信框时, 强通道(select_target 的入口)拿不到任何候选
 assert owner_id._fetch_detections.__doc__ and \
