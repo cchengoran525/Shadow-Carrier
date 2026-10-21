@@ -123,6 +123,12 @@ details summary{cursor:pointer;color:#8b949e;font-size:13px;margin:6px 0}
     <span class="small">阻尼 K</span><input id="mYawK" type="number" step="0.1">
     <span class="small">转向增益</span><input id="mWdes" type="number" step="0.01">
   </div>
+  <div class="row" style="margin-top:8px">
+    <span class="small">转向通道</span>
+    <button class="d" onclick="setTurn(0)">T2 基线：关</button>
+    <button class="d" onclick="setTurn(1)">T4 passby：开</button>
+    <span id="turnState" class="small"></span>
+  </div>
   <div class="row" style="margin-top:10px">
     <button class="g" onclick="applyMotion()">应用</button>
     <button class="d" onclick="preset('heavy')">重载档</button>
@@ -316,6 +322,7 @@ async function loadMotion(){
     $('mManual').value = d.MANUAL_FWD_SPD;
     $('mYawK').value = d.YAW_K;
     $('mWdes').value = d.W_DES_GAIN;
+    $('turnState').textContent = '当前: ' + (d.TURN_ENABLED ? '开' : '关');
     $('motion').textContent = JSON.stringify(d, null, 1);
   } catch(e){ $('motion').textContent = '读取失败'; }
 }
@@ -328,8 +335,12 @@ async function applyMotion(){
   const d = await jpost('/motion/config', body);
   $('motion').textContent = JSON.stringify(d, null, 1);
 }
-async function preset(which){
-  const p = which === 'heavy'
+async function setTurn(on){
+  const d = await jpost('/motion/config', {TURN_ENABLED: on});
+  $('motion').textContent = JSON.stringify(d, null, 1);
+  $('turnState').textContent = '当前: ' + (on ? '开' : '关');
+}
+async function preset(which){  const p = which === 'heavy'
     ? {BASE_SPD:245, MIN_SPD:155, PIVOT_PWM:240, MANUAL_FWD_SPD:255,
        YAW_CORR_MAX:20, YAW_K:2.0, W_DES_GAIN:0.18,
        BACK_SPD:110, SEARCH_BACK_SPD:95,

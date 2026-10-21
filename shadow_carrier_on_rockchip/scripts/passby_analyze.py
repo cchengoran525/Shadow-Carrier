@@ -54,14 +54,30 @@ def main():
     ap.add_argument("--vis-ok", type=float, default=90.0, help="owner 锁定率下限 %%")
     ap.add_argument("--gap-ok", type=float, default=0.5, help="最长连续缺失上限 s")
     ap.add_argument("--switch-px", type=float, default=200.0, help="判定换主的中心跳变 px")
+    ap.add_argument("--skip", type=float, default=1.5,
+                    help="跳过开头启动段(秒); 0=不跳. 原始/稳态锁定率都会打印")
     args = ap.parse_args()
 
-    recs = load(args.file)
+    all_recs = load(args.file)
+    if len(all_recs) < 10:
+        print(f"[analyze] 样本太少({len(all_recs)}), 无法判定"); return 2
+    t0_all = all_recs[0]["t"]
+    dur_all = all_recs[-1]["t"] - t0_all
+    raw_n = len(all_recs)
+    raw_ok = sum(1 for r in all_recs if r.get("owner_ok"))
+    raw_vis = 100.0 * raw_ok / raw_n if raw_n else 0.0
+
+    recs = all_recs
+    if args.skip > 0:
+        recs = [r for r in all_recs if r["t"] - t0_all >= args.skip]
+        if len(recs) < 10:          # 太短就不跳
+            recs = all_recs
     if len(recs) < 10:
         print(f"[analyze] 样本太少({len(recs)}), 无法判定"); return 2
 
-    t0, t1 = recs[0]["t"], recs[-1]["t"]
-    dur = max(1e-6, t1 - t0)
+    t0 = t0_all
+    t1 = recs[-1]["t"]
+    dur = max(1e-6, t1 - recs[0]["t"])
     n = len(recs)
     n_ok = sum(1 for r in recs if r.get("owner_ok"))
     n_person = sum(1 for r in recs if (r.get("n_person") or 0) > 0)
@@ -178,8 +194,8 @@ def main():
         print(f"   场景标签         : {recs[0].get('label')}")
         if recs[0].get("label") != "T4":
             print("   注意: 当前自动阈值按 T4 设定; 本场景请按 FIELD_TEST_PLAN 对应判据解读")
-    print(f"   时长 {dur:.1f}s / 样本 {n} / 采样率 {n / dur:.1f}Hz")
-    print(f"   主人锁定率(严格) : {vis:5.1f}%   [阈值 ≥{args.vis_ok:.0f}%]")
+    print(f"   时长 {dur_all:.1f}s (稳态 {dur:.1f}s, 跳过前 {args.skip:.1f}s) / 样本 {n} / 采样率 {n / dur:.1f}Hz")
+    print(f"   主人锁定率(严格) : {vis:5.1f}%  (原始 {raw_vis:.1f}%)  [阈值 ≥{args.vis_ok:.0f}%]")
     print(f"   画面有人率(宽松) : {person_pct:5.1f}%")
     print(f"   最长连续缺失     : {max_gap:.2f}s   [阈值 ≤{args.gap_ok:.2f}s]"
           f"   超阈段 {len(bad_gaps)} 个")

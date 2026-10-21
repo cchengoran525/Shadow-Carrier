@@ -1078,6 +1078,7 @@ def _t1_status():
 MOTION_TUNE = os.path.expanduser("~kickpi/hri_logs/motion_tune.json")
 _FC_KEYS = {"BASE_SPD", "MIN_SPD", "PIVOT_PWM", "YAW_CORR_MAX", "BACK_SPD",
             "SEARCH_BACK_SPD", "MAX_OFFSET"}
+_BOOL_KEYS = {"TURN_ENABLED"}   # 运行时可切: T2/T3/T6/T7 基线=0, T4 passby=1
 _FC_FLOAT_KEYS = {"W_DES_GAIN": 5.0, "W_DES_MAX": 180.0, "YAW_K": 20.0,
                   "YAW_DEAD": 20.0, "YAW_WHEEL_MIN": 255.0}
 _RK_KEYS = ("MANUAL_FWD_SPD", "HRI_APPROACH_SPD", "HRI_BACK_SPD",
@@ -1095,6 +1096,8 @@ def _motion_get():
             d[k] = getattr(_fc, k, None)
         for k in _FC_FLOAT_KEYS:
             d[k] = getattr(_fc, k, None)
+        for k in _BOOL_KEYS:
+            d[k] = bool(getattr(_fc, k, False))
     for k in _RK_KEYS:
         d[k] = globals().get(k)
     d["tune_file"] = MOTION_TUNE
@@ -1110,6 +1113,14 @@ def _motion_set(params):
         return {"ok": False, "error": f"import follow_controller: {e}"}
     applied = {}
     for k, v in (params or {}).items():
+        if k in _BOOL_KEYS:
+            try:
+                bv = bool(int(round(float(v))))
+            except Exception:
+                bv = bool(v)
+            setattr(_fc, k, bv)
+            applied[k] = bv
+            continue
         if k in _FC_FLOAT_KEYS:
             try:
                 fv = float(v)
