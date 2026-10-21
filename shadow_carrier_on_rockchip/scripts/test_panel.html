@@ -292,7 +292,7 @@ async function testPoll(){
 function startTest(path, label){
   if (!confirm(label + '：车会短暂动作，确认四周 ≥1m 且无人？')) return;
   $('selftest').textContent = '启动 ' + label + ' ...';
-  jget(path).then(d=>{
+  jpost(path, {dry:false}).then(d=>{
     if (!d.ok){ $('selftest').textContent = '启动失败: ' + JSON.stringify(d); return; }
     if (tTimer) clearInterval(tTimer);
     tTimer = setInterval(testPoll, 400);

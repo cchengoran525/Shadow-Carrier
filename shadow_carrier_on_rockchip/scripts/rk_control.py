@@ -1286,12 +1286,11 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self._json({"error": str(e)})
             return
+        # 安全: GET 只做 dry-run(返回步骤, 不动车); 真跑必须 POST, 且默认 dry=true
         if self.path.startswith('/test/t0'):
-            self._json(_test_start("T0", T0_STEPS,
-                                   dry=(_qs(self.path, 'dry', '0') == '1'))); return
+            self._json(_test_start("T0", T0_STEPS, dry=True)); return
         if self.path.startswith('/test/t8'):
-            self._json(_test_start("T8", T8_STEPS,
-                                   dry=(_qs(self.path, 'dry', '0') == '1'))); return
+            self._json(_test_start("T8", T8_STEPS, dry=True)); return
         if self.path.startswith('/test/stop'):
             self._json(_test_stop()); return
         if self.path.startswith('/test/status'):
@@ -1309,6 +1308,19 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == '/turn/status': self._json(turn_state)
         else: self.send_response(302); self.send_header('Location','/'); self.end_headers()
     def do_POST(self):
+        # T0/T8 真跑必须 POST; body 缺省或 dry=true 时只返回步骤, 不动电机
+        if self.path in ('/test/t0', '/test/t8'):
+            try:
+                cl = int(self.headers.get('Content-Length', 0))
+                body = json.loads(self.rfile.read(cl)) if cl else {}
+            except Exception:
+                body = {}
+            dry = bool(body.get('dry', True))
+            if self.path.endswith('/t0'):
+                self._json(_test_start("T0", T0_STEPS, dry=dry))
+            else:
+                self._json(_test_start("T8", T8_STEPS, dry=dry))
+            return
         if self.path == '/motion/config':
             try:
                 cl = int(self.headers.get('Content-Length', 0))
