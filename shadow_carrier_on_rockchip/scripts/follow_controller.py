@@ -29,11 +29,11 @@ ALPHA_REF_DT = 0.1    # dt归一基准周期
 DIR_DEADBAND = 50     # 死区: ±50px内直走
 # 航向闭环 (IMU, 2026-10-04): 仅直行段生效, 压住开环走歪
 YAW_K = 2.0           # dps → 轮速差 增益
-YAW_CORR_MAX = 12     # 单轮最大修正量
+YAW_CORR_MAX = 16     # 单轮最大修正量 (12→16, 重载航向纠偏需要更大权限)
 YAW_DEAD = 1.5        # 死区(dps): 小于此值视为零偏噪声, 不修正 (治标定残差导致的持续偏航)
 
-BASE_SPD = 220        # 基准前进速度 (100→130→150→220; 对齐手动 240; 载物盒后按扭矩/电压实测)
-MIN_SPD = 120         # 最小轮速 (60→80→120; 载物盒后内轮太慢会带不动/转不动)
+BASE_SPD = 245        # 基准前进速度 (220→245, 2026-10-21 重载档: 车重↑需更大基础力矩)
+MIN_SPD = 155         # 最小轮速 (120→155, 重载下内轮低于此会带不动/转不动)
 MAX_OFFSET = 200       # 偏移饱和点
 
 TARGET_BBOX_H = 400
@@ -73,10 +73,10 @@ LOCK_CONFIRM_N = 3          # 非连续候选(换人/重获)需连续帧数
 LOCK_CONFIRM_STRICT_N = 5   # 候选在"出画侧反方向"时更严(擦身窗口)
 SWITCH_SCORE_MARGIN = 0.03  # 非连续候选起始门槛: SCORE_MIN + margin
 SWITCH_MAX_PX = 200         # 与跟踪器预测中心超过此值 = 非连续(换人候选)
-BACK_SPD = 85
+BACK_SPD = 110
 BACK_MS = 0.25
 # 丢人搜索: 找不到人时先小幅后退找人(配合云台搜索), 而不是只靠云台摇摆
-SEARCH_BACK_SPD = 70      # 后退速度(比 BACK_SPD 慢, 稳)
+SEARCH_BACK_SPD = 95      # 后退速度(重载档 70→95; 仍比 BACK_SPD 慢)
 
 # ========== 底盘转向通道 (v5, 2026-10-16 统筹批准 v3) ==========
 # 原则1: 前进跟人 = 弧线(DIFF), 上面那套映射一行不改 (2026-08-08 裁定继续生效)
@@ -90,7 +90,7 @@ TURN_ENABLED = True      # 总开关: 2026-10-20 [运动控制] T4 passby 启用
 PIVOT_ENTER_DEG = 30.0   # E2 兜底入口: |θ|≥此值持续 PIVOT_ENTER_S
 PIVOT_ENTER_S = 0.3
 PIVOT_EXIT_DEG = 15.0    # 退出口(与入口构成 2:1 迟滞; 参照 Nav2 RotationShim 45/22.5)
-PIVOT_PWM = 190          # MOVE L/R 速度 (110→190; 载物盒后原地转需更大扭矩; 角速度待 pivot_calib)
+PIVOT_PWM = 240          # MOVE L/R 速度 (190→240, 重载档: 原地转需更大扭矩; 角速度待 pivot_calib)
 # 原地转的标称角速度(°/s): 190 PWM 在仿真运动学下 ≈174°/s。实机由 scripts/pivot_calib.py
 # 实测覆盖。用途: 把"角度预算"翻译成"时间预算"(盲转 60°≈0.34s; 扫描 90° 一档≈0.52s),
 # 让 测试/仿真/生产 共用同一口径。改 PIVOT_PWM 或换底盘(麦轮/编码器)都要重跑标定并改这里。
@@ -803,7 +803,7 @@ class FollowController:
         fwd = BASE_SPD
         if _d is not None and 0.4 < _d < 8.0:
             # 目标间距1.2m; 人远→快、人近→慢, 保守±30
-            fwd = int(max(MIN_SPD, min(240, BASE_SPD + (_d - 1.2) * 30)))
+            fwd = int(max(MIN_SPD, min(255, BASE_SPD + (_d - 1.2) * 30)))
         elif _d is None and abs_off <= NEAR_GATE_OFFSET and self.sh > SLOW_BBOX_H:
             # 框高减速兜底: 越近越慢(到 STOP_BBOX_H 已硬停)
             frac = min(1.0, (self.sh - SLOW_BBOX_H) / max(1.0, STOP_BBOX_H - SLOW_BBOX_H))

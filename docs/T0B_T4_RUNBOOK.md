@@ -49,7 +49,8 @@ pivot(){ curl -s -X POST http://127.0.0.1/turn_pivot \
 - **③ 场景录制（T2/T3/T4/T6/T7）**：选场景 + 填本条名称 → 开始录制 → 走位 → **停止并分析**（自动出 锁定率/最长缺失/疑似换主/命令停止段/HRI 时间线）；
 - **④ 健康**：fps / age / restarts / `frame_write_fail` / `cam_reopens` / IMU / dnsmasq / 相机节点 / follow / 超声 OBS；
 - **⑤ 日志**：列表 + 下载 + 看尾部（保留 200 个 / 30 天）；
-- **⑥ 链路/自检**：**T0 链路 smoke**（PING→MOVE F→STOP→MOVE L→STOP）、**T8 手动自检**（F/B/L/R/STOP）、**T1 enroll 状态**（samples + owner.json 新鲜度）、停止自检。
+- **⑥ 链路/自检**：**T0 链路 smoke**（PING→MOVE F→STOP→MOVE L→STOP）、**T8 手动自检**（F/B/L/R/STOP）、**T1 enroll 状态**（samples + owner.json 新鲜度）、停止自检；
+- **⑦ 速度/力矩（重载调参）**：BASE / MIN / PIVOT / MANUAL 现场改（一键「重载档」/「标准档」），**立即生效**并持久化到 `~/hri_logs/motion_tune.json`（重启自动恢复）。重载档 = BASE 245 / MIN 155 / PIVOT 240 / MANUAL 255。
 
 > 以下 §1–§3 的 curl/命令是同一套接口的 CLI 等价写法，二选一即可。
 

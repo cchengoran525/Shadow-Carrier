@@ -59,8 +59,8 @@ GAZE_ENABLED = False
 BASE_ENTER = 20.0            # 云台偏超20° → 底盘弧线转向
 BASE_EXIT = 10.0             # 回到10°内 → 停止转向(滞回)
 BASE_HOLD_S = 0.4            # 持续超阈确认
-ARC_FAST = 100               # 弧线外侧轮速 (保持前进!)
-ARC_SLOW = 90                # 弧线内侧轮速 (70→90, 跟随MIN_SPD上调)
+ARC_FAST = 140               # 弧线外侧轮速 (100→140, 重载档; 保持前进!)
+ARC_SLOW = 120               # 弧线内侧轮速 (90→120, 重载档: 内轮不能低于死区)
 ESC_BACK_S = 0.8             # 避障倒车时长(s)
 ESC_GIVEUP_S = 3.0           # 阻碍持续多久放弃绕行改等待(s)
 
@@ -103,7 +103,7 @@ turn_state = {"active": False, "target": None, "yaw": None, "err": None,
 turn_lock = threading.Lock()
 TURN_TOL_DEG = 3.0      # 到位判定
 TURN_TIMEOUT_S = 10.0   # 超时保护
-TURN_DIFF = 40          # 转向差速量
+TURN_DIFF = 60          # 转向差速量 (40→60, 重载档: 内轮需更大基础力矩)
 
 def _read_yaw(path=None):
     """读积分航向 yaw_deg (逆时针为正); 过期/无效返回 None。
@@ -122,7 +122,7 @@ def _read_yaw(path=None):
 # ====== 手动航向保持 (2026-10-18) ======
 # 遥控只按前进时开环会持续偏航; 用 IMU yaw 做直线保持(替代固定 MOVE F)。
 # 按左/右/停 → 取消保持; 下次前进重新取目标。
-MANUAL_FWD_SPD = 240     # 手动前进速度(180→220→240; 量程255; 载物盒后按扭矩/电压实测)
+MANUAL_FWD_SPD = 255     # 手动前进速度(240→255 重载档; 量程255; 满电+重载下用满)
 MH_K = 3.0               # yaw 误差(度) → 轮速差 增益
 MH_CORR_MAX = 30         # 单轮最大修正
 _mh_target = None        # 手动航向保持目标(无界 yaw_deg 的原始值)
@@ -189,7 +189,7 @@ def _turn_worker(deg, spd, pivot=False):
         print(f"[turn] 结束: {turn_state['result']} yaw={turn_state['yaw']}"
               f"{' (pivot 原地)' if pivot else ''}")
 
-def _turn_start(deg, spd=110, pivot=False):
+def _turn_start(deg, spd=170, pivot=False):
     if _get_mode() != "manual":      # follow 模式由 follow 循环掌控底盘(单一控制器纪律,
         return False                 #  2026-10-14 双控制器抢底盘事故后定)
     if turn_state.get("active"):
@@ -429,17 +429,17 @@ def _get_owner_dist():
 # 所有动作都是有界短脉冲：动作变化/超时/障碍/IMU 丢失 → STOP。
 # 桥激活期间跟随命令被丢弃，避免两个控制器抢底盘（2026-10-14 事故的纪律）。
 HRI_ACTION_MAX_AGE_S = 0.5
-HRI_APPROACH_SPD = 80
+HRI_APPROACH_SPD = 120
 HRI_APPROACH_STOP_M = 0.5        # 地面测距可用时
 HRI_APPROACH_STOP_CM = 35.0      # 超声兜底（<1.6m 时地面测距返回 None）
 HRI_APPROACH_MAX_S = 3.0
 HRI_APPROACH_GAP_S = 1.2
-HRI_BACK_SPD = 80
+HRI_BACK_SPD = 120
 HRI_BACK_S = 0.6
 HRI_BACK_GAP_S = 1.5
-HRI_GOTO_SPD = 90
+HRI_GOTO_SPD = 140
 HRI_GOTO_MAX_S = 1.5
-HRI_GOTO_TURN_SPD = 110
+HRI_GOTO_TURN_SPD = 220
 HRI_GOTO_TOL_DEG = 8.0
 HRI_GOTO_TURN_MAX_S = 3.0
 HRI_GOTO_RETRY_S = 12.0
@@ -1071,6 +1071,71 @@ def _t1_status():
     return out
 
 
+# ====== 速度/力矩现场调参 (重载档) ======
+MOTION_TUNE = os.path.expanduser("~kickpi/hri_logs/motion_tune.json")
+_FC_KEYS = {"BASE_SPD", "MIN_SPD", "PIVOT_PWM", "YAW_CORR_MAX", "BACK_SPD", "SEARCH_BACK_SPD"}
+_RK_KEYS = ("MANUAL_FWD_SPD", "HRI_APPROACH_SPD", "HRI_BACK_SPD",
+            "HRI_GOTO_SPD", "HRI_GOTO_TURN_SPD", "TURN_DIFF", "ARC_FAST", "ARC_SLOW")
+
+
+def _motion_get():
+    try:
+        import follow_controller as _fc
+    except Exception:
+        _fc = None
+    d = {}
+    if _fc is not None:
+        for k in _FC_KEYS:
+            d[k] = getattr(_fc, k, None)
+    for k in _RK_KEYS:
+        d[k] = globals().get(k)
+    d["tune_file"] = MOTION_TUNE
+    return d
+
+
+def _motion_set(params):
+    """运行时改速度/力矩(0-255), 并持久化到 ~/hri_logs/motion_tune.json。
+    follow_controller 的常量在 tick() 里按模块全局读取 → 运行中改立即生效。"""
+    try:
+        import follow_controller as _fc
+    except Exception as e:
+        return {"ok": False, "error": f"import follow_controller: {e}"}
+    applied = {}
+    for k, v in (params or {}).items():
+        try:
+            iv = int(round(float(v)))
+        except Exception:
+            continue
+        iv = max(0, min(255, iv))
+        if k in _FC_KEYS:
+            setattr(_fc, k, iv)
+        elif k in _RK_KEYS:
+            globals()[k] = iv
+        else:
+            continue
+        applied[k] = iv
+    try:
+        os.makedirs(os.path.dirname(MOTION_TUNE), exist_ok=True)
+        cur = _motion_get(); cur.pop("tune_file", None); cur.update(applied)
+        tmp = MOTION_TUNE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(cur, f)
+        os.replace(tmp, MOTION_TUNE)
+    except Exception:
+        pass
+    return {"ok": True, "applied": applied, "config": _motion_get()}
+
+
+def _motion_load():
+    try:
+        with open(MOTION_TUNE) as f:
+            d = json.load(f)
+        if isinstance(d, dict):
+            _motion_set(d)
+    except Exception:
+        pass
+
+
 def _healthz():
     out = {"mode": _get_mode()}
     try:
@@ -1205,6 +1270,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(_test_status()); return
         if self.path.startswith('/test/t1'):
             self._json(_t1_status()); return
+        if self.path.startswith('/motion/config'):
+            self._json(_motion_get()); return
         if self.path.startswith('/healthz'):
             self._json(_healthz()); return
         if self.path == '/': self._page()
@@ -1214,6 +1281,14 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == '/turn/status': self._json(turn_state)
         else: self.send_response(302); self.send_header('Location','/'); self.end_headers()
     def do_POST(self):
+        if self.path == '/motion/config':
+            try:
+                cl = int(self.headers.get('Content-Length', 0))
+                body = json.loads(self.rfile.read(cl)) if cl else {}
+                self._json(_motion_set(body))
+            except Exception:
+                self.send_response(400); self._text('BAD')
+            return
         if self.path == '/move':
             try:
                 cl = int(self.headers.get('Content-Length', 0))
@@ -1244,7 +1319,7 @@ class Handler(BaseHTTPRequestHandler):
                 cl = int(self.headers.get('Content-Length', 0))
                 body = json.loads(self.rfile.read(cl)) if cl else {}
                 deg = float(body.get('deg', 0))
-                spd = int(body.get('speed', 110))
+                spd = int(body.get('speed', 170))
                 if _turn_start(deg, spd):
                     self._json({"ok": True, "state": turn_state})
                 else:
@@ -1442,6 +1517,7 @@ def main():
     ok = uart_open(UART)
     if ok: time.sleep(0.5)
     print("OK" if ok else "UART FAIL (will retry on udev)")
+    _motion_load()          # 重载档现场调参(~/hri_logs/motion_tune.json), 启动时恢复
     threading.Thread(target=uart_reader, daemon=True).start()
     threading.Thread(target=_hri_bridge_loop, daemon=True).start()
     httpd = TServer(('0.0.0.0', args.port), Handler)

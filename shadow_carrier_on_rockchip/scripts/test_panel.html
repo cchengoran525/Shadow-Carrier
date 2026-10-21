@@ -111,6 +111,24 @@ details summary{cursor:pointer;color:#8b949e;font-size:13px;margin:6px 0}
   <div class="small">T0 = PING→MOVE F→STOP→MOVE L→STOP；T8 = F/B/L/R/STOP 各 0.4s。仅手动模式、每步有界短脉冲；物理响应请目视；自检后仍为 manual。</div>
 </div>
 
+<h2>⑦ 速度/力矩（重载调参）</h2>
+<div class="card">
+  <div class="row">
+    <span class="small">BASE</span><input id="mBase" type="number">
+    <span class="small">MIN</span><input id="mMin" type="number">
+    <span class="small">PIVOT</span><input id="mPivot" type="number">
+    <span class="small">MANUAL</span><input id="mManual" type="number">
+  </div>
+  <div class="row" style="margin-top:10px">
+    <button class="g" onclick="applyMotion()">应用</button>
+    <button class="d" onclick="preset('heavy')">重载档</button>
+    <button class="d" onclick="preset('standard')">标准档</button>
+    <button class="d" onclick="loadMotion()">读取当前</button>
+  </div>
+  <pre id="motion" style="margin-top:10px">加载中...</pre>
+  <div class="small">值域 0–255（PWM）。重载档 = BASE 245 / MIN 155 / PIVOT 240 / MANUAL 255。改完立即生效并保存到 <code>~/hri_logs/motion_tune.json</code>，重启后自动恢复。</div>
+</div>
+
 <div class="small" style="margin-top:18px">
   说明：本页与主页面同源（板端 :80）。手机连 <b>ShadowCarrier-RK</b> 后访问 <b>http://192.168.4.1/test</b> 即可，无需网线/SSH。
 </div>
@@ -284,6 +302,38 @@ async function t1(){
     '\n  ok(新鲜≤1s): ' + d.ok;
 }
 
+// ---- ⑦ 速度/力矩调参 ----
+async function loadMotion(){
+  try {
+    const d = await jget('/motion/config');
+    $('mBase').value = d.BASE_SPD;
+    $('mMin').value = d.MIN_SPD;
+    $('mPivot').value = d.PIVOT_PWM;
+    $('mManual').value = d.MANUAL_FWD_SPD;
+    $('motion').textContent = JSON.stringify(d, null, 1);
+  } catch(e){ $('motion').textContent = '读取失败'; }
+}
+async function applyMotion(){
+  const body = {
+    BASE_SPD: +$('mBase').value, MIN_SPD: +$('mMin').value,
+    PIVOT_PWM: +$('mPivot').value, MANUAL_FWD_SPD: +$('mManual').value
+  };
+  const d = await jpost('/motion/config', body);
+  $('motion').textContent = JSON.stringify(d, null, 1);
+}
+async function preset(which){
+  const p = which === 'heavy'
+    ? {BASE_SPD:245, MIN_SPD:155, PIVOT_PWM:240, MANUAL_FWD_SPD:255,
+       YAW_CORR_MAX:16, BACK_SPD:110, SEARCH_BACK_SPD:95,
+       HRI_APPROACH_SPD:120, HRI_BACK_SPD:120, HRI_GOTO_SPD:140, HRI_GOTO_TURN_SPD:220}
+    : {BASE_SPD:220, MIN_SPD:120, PIVOT_PWM:190, MANUAL_FWD_SPD:240,
+       YAW_CORR_MAX:12, BACK_SPD:85, SEARCH_BACK_SPD:70,
+       HRI_APPROACH_SPD:80, HRI_BACK_SPD:80, HRI_GOTO_SPD:90, HRI_GOTO_TURN_SPD:110};
+  const d = await jpost('/motion/config', p);
+  $('motion').textContent = JSON.stringify(d, null, 1);
+  loadMotion();
+}
+
 async function health(){
   try {
     const d = await jget('/healthz');
@@ -326,6 +376,7 @@ refreshMode();
 health();
 loadList();
 loadLogs();
+loadMotion();
 setInterval(refreshMode, 3000);
 </script>
 </body>
