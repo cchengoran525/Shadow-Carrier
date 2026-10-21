@@ -28,9 +28,14 @@ ALPHA_REF_DT = 0.1    # dt归一基准周期
 
 DIR_DEADBAND = 50     # 死区: ±50px内直走
 # 航向闭环 (IMU, 2026-10-04): 仅直行段生效, 压住开环走歪
-YAW_K = 2.0           # dps → 轮速差 增益
-YAW_CORR_MAX = 16     # 单轮最大修正量 (12→16, 重载航向纠偏需要更大权限)
+YAW_K = 1.0           # dps → 轮速差 增益 (2.0→1.0: 全程角速度闭环后降增益防振荡; 现场可调)
+YAW_CORR_MAX = 20     # 单轮最大修正量 (16→20, 全程闭环后需要一点余量)
 YAW_DEAD = 1.5        # 死区(dps): 小于此值视为零偏噪声, 不修正 (治标定残差导致的持续偏航)
+YAW_WHEEL_MIN = 120   # 角速度修正时单轮下限(防重载内轮掉到死区停转)
+# 弧线段 IMU 角速度闭环 (2026-10-21): 旧版只在 |offset|<=DIR_DEADBAND 用 IMU, 跟随偏移时
+# 弧线段无反馈 → 纯 P 遇轮速不一致/重载会画弧/蛇形。改为全程: w_des(期望转速) - yaw_rate。
+W_DES_GAIN = 0.18     # dps/px: 超出死区后每 px 的期望转向角速度
+W_DES_MAX = 35.0      # dps: 期望转向角速度上限
 
 BASE_SPD = 245        # 基准前进速度 (220→245, 2026-10-21 重载档: 车重↑需更大基础力矩)
 MIN_SPD = 155         # 最小轮速 (120→155, 重载下内轮低于此会带不动/转不动)
@@ -225,6 +230,7 @@ class FollowController:
         self._searched_at = 0.0  # 上次扫描用尽时刻(抑制"扫完又后退搜索")
         self._turn_domain = False   # tick(turn_only=True): 停驻域(HIDE/WAIT)只做有界转向
         self._h_jump = 0         # 框高突变确认计数(见 H_CHANGE_CONFIRM_N)
+        self._w_des = 0.0        # 期望转向角速度(dps, 黑匣子/调试)
 
     def start(self):
         """启动跟随; 仿真注入目标检测，实机必须通过 owner_id 认主。"""
@@ -814,17 +820,9 @@ class FollowController:
             _vg = min(1.0, (abs_off - NEAR_GATE_OFFSET)
                       / max(1.0, float(PIVOT_ENTER_PX - NEAR_GATE_OFFSET)))
             fwd = int(max(MIN_SPD, round(fwd * (1.0 - V_GATE_DROP * _vg))))
+        # ---- 基础差速(前馈): 正前直行 / 偏移→弧线 ----
         if abs_off <= DIR_DEADBAND:
-            # 直走 + 航向闭环(IMU): 压住开环走歪
             left = right = fwd
-            if self.yaw_rate_fn is not None:
-                yr = self.yaw_rate_fn()
-                if yr is not None and abs(yr) >= YAW_DEAD:
-                    # yr>0 = 逆时针(左漂) → 需右修: 左轮快/右轮慢
-                    corr = max(-YAW_CORR_MAX, min(YAW_CORR_MAX, YAW_K * yr))
-                    hi = fwd + YAW_CORR_MAX
-                    left = int(max(20, min(hi, fwd + corr)))
-                    right = int(max(20, min(hi, fwd - corr)))
             self.last_turn_dir = None
         else:
             # 弧线: 一侧降速
@@ -838,6 +836,25 @@ class FollowController:
                 left, right = fwd, slow
             self.last_turn_dir = "L" if offset < 0 else "R"
 
+        # ---- IMU 角速度闭环 (全程, 不再只限正前死区) ----
+        # w_des: 人偏右(offset>0) → 右转(CW, yaw_rate 为负); 正前 → 0(保直)
+        # e = w_des - yaw_rate; corr>0 = 需要更多 CCW → 右轮快/左轮慢
+        self._w_des = 0.0
+        if self.yaw_rate_fn is not None:
+            yr = self.yaw_rate_fn()
+            if yr is not None:
+                w_des = 0.0
+                if abs_off > DIR_DEADBAND:
+                    sgn = 1.0 if offset > 0 else -1.0
+                    w_des = -W_DES_GAIN * sgn * (abs_off - DIR_DEADBAND)
+                    w_des = max(-W_DES_MAX, min(W_DES_MAX, w_des))
+                self._w_des = w_des
+                e = w_des - yr
+                if abs(e) >= YAW_DEAD:
+                    corr = max(-YAW_CORR_MAX, min(YAW_CORR_MAX, YAW_K * e))
+                    left = int(max(YAW_WHEEL_MIN, min(255, left - corr)))
+                    right = int(max(YAW_WHEEL_MIN, min(255, right + corr)))
+
         self._diff(left, right)
         return "DIFF", f"L{left}R{right}", self._info(offset)
 
@@ -845,7 +862,8 @@ class FollowController:
         d = {"state": "active", "paused": self.paused,
              "owner": self.profile is not None, "score": round(self.last_score, 2),
              "smooth_cx": round(self.scx, 1), "smooth_h": round(self.sh, 1),
-             "offset": None if offset is None else round(offset, 1), "lost": self.lost}
+             "offset": None if offset is None else round(offset, 1), "lost": self.lost,
+             "yaw_rate": round(self._yaw_rate(), 2), "w_des": round(self._w_des, 1)}
         if TURN_ENABLED:    # 黑匣子: 转向通道的原始量(只记不控, 供实机取阈值)
             d.update({"phase": self.phase,
                       "theta": None if self._theta is None else round(self._theta, 1),

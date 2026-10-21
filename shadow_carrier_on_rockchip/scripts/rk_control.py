@@ -1074,6 +1074,8 @@ def _t1_status():
 # ====== 速度/力矩现场调参 (重载档) ======
 MOTION_TUNE = os.path.expanduser("~kickpi/hri_logs/motion_tune.json")
 _FC_KEYS = {"BASE_SPD", "MIN_SPD", "PIVOT_PWM", "YAW_CORR_MAX", "BACK_SPD", "SEARCH_BACK_SPD"}
+_FC_FLOAT_KEYS = {"W_DES_GAIN": 5.0, "W_DES_MAX": 180.0, "YAW_K": 20.0,
+                  "YAW_DEAD": 20.0, "YAW_WHEEL_MIN": 255.0}
 _RK_KEYS = ("MANUAL_FWD_SPD", "HRI_APPROACH_SPD", "HRI_BACK_SPD",
             "HRI_GOTO_SPD", "HRI_GOTO_TURN_SPD", "TURN_DIFF", "ARC_FAST", "ARC_SLOW")
 
@@ -1086,6 +1088,8 @@ def _motion_get():
     d = {}
     if _fc is not None:
         for k in _FC_KEYS:
+            d[k] = getattr(_fc, k, None)
+        for k in _FC_FLOAT_KEYS:
             d[k] = getattr(_fc, k, None)
     for k in _RK_KEYS:
         d[k] = globals().get(k)
@@ -1102,6 +1106,15 @@ def _motion_set(params):
         return {"ok": False, "error": f"import follow_controller: {e}"}
     applied = {}
     for k, v in (params or {}).items():
+        if k in _FC_FLOAT_KEYS:
+            try:
+                fv = float(v)
+            except Exception:
+                continue
+            fv = max(0.0, min(_FC_FLOAT_KEYS[k], fv))
+            setattr(_fc, k, round(fv, 3))
+            applied[k] = round(fv, 3)
+            continue
         try:
             iv = int(round(float(v)))
         except Exception:

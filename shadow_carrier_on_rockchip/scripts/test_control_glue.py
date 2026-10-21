@@ -54,7 +54,8 @@ assert c1 == f"DIFF L{rk.MANUAL_FWD_SPD} R{rk.MANUAL_FWD_SPD}", c1
 c2 = fwd(105.0)
 l2 = int(c2.split()[1][1:]); r2 = int(c2.split()[2][1:])
 assert l2 > r2, f"y 超前(偏左)应右修(左快), 实际 {c2}"
-assert (l2, r2) == (rk.MANUAL_FWD_SPD + 15, rk.MANUAL_FWD_SPD - 15), c2
+assert (l2, r2) == (min(255, rk.MANUAL_FWD_SPD + 15),
+                    min(255, rk.MANUAL_FWD_SPD - 15)), c2
 # 车头偏右(y < target) → 左修: 左慢右快
 c3 = fwd(95.0)
 l3 = int(c3.split()[1][1:]); r3 = int(c3.split()[2][1:])

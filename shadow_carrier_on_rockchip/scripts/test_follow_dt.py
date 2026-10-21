@@ -9,6 +9,7 @@ SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPTS)
 spec = importlib.util.spec_from_file_location("follow_controller", os.path.join(SCRIPTS, "follow_controller.py"))
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+m.TURN_ENABLED = False      # 本测试只验弧线/直行包络; 转向通道由 test_turn_pivot 覆盖
 
 cmds, cur = [], {"box": None}
 fc = m.FollowController(lambda c: cmds.append(c), person_provider=lambda: cur["box"])

@@ -119,6 +119,10 @@ details summary{cursor:pointer;color:#8b949e;font-size:13px;margin:6px 0}
     <span class="small">PIVOT</span><input id="mPivot" type="number">
     <span class="small">MANUAL</span><input id="mManual" type="number">
   </div>
+  <div class="row" style="margin-top:8px">
+    <span class="small">阻尼 K</span><input id="mYawK" type="number" step="0.1">
+    <span class="small">转向增益</span><input id="mWdes" type="number" step="0.01">
+  </div>
   <div class="row" style="margin-top:10px">
     <button class="g" onclick="applyMotion()">应用</button>
     <button class="d" onclick="preset('heavy')">重载档</button>
@@ -310,13 +314,16 @@ async function loadMotion(){
     $('mMin').value = d.MIN_SPD;
     $('mPivot').value = d.PIVOT_PWM;
     $('mManual').value = d.MANUAL_FWD_SPD;
+    $('mYawK').value = d.YAW_K;
+    $('mWdes').value = d.W_DES_GAIN;
     $('motion').textContent = JSON.stringify(d, null, 1);
   } catch(e){ $('motion').textContent = '读取失败'; }
 }
 async function applyMotion(){
   const body = {
     BASE_SPD: +$('mBase').value, MIN_SPD: +$('mMin').value,
-    PIVOT_PWM: +$('mPivot').value, MANUAL_FWD_SPD: +$('mManual').value
+    PIVOT_PWM: +$('mPivot').value, MANUAL_FWD_SPD: +$('mManual').value,
+    YAW_K: +$('mYawK').value, W_DES_GAIN: +$('mWdes').value
   };
   const d = await jpost('/motion/config', body);
   $('motion').textContent = JSON.stringify(d, null, 1);
@@ -324,10 +331,12 @@ async function applyMotion(){
 async function preset(which){
   const p = which === 'heavy'
     ? {BASE_SPD:245, MIN_SPD:155, PIVOT_PWM:240, MANUAL_FWD_SPD:255,
-       YAW_CORR_MAX:16, BACK_SPD:110, SEARCH_BACK_SPD:95,
+       YAW_CORR_MAX:20, YAW_K:2.0, W_DES_GAIN:0.18,
+       BACK_SPD:110, SEARCH_BACK_SPD:95,
        HRI_APPROACH_SPD:120, HRI_BACK_SPD:120, HRI_GOTO_SPD:140, HRI_GOTO_TURN_SPD:220}
     : {BASE_SPD:220, MIN_SPD:120, PIVOT_PWM:190, MANUAL_FWD_SPD:240,
-       YAW_CORR_MAX:12, BACK_SPD:85, SEARCH_BACK_SPD:70,
+       YAW_CORR_MAX:16, YAW_K:2.0, W_DES_GAIN:0.18,
+       BACK_SPD:85, SEARCH_BACK_SPD:70,
        HRI_APPROACH_SPD:80, HRI_BACK_SPD:80, HRI_GOTO_SPD:90, HRI_GOTO_TURN_SPD:110};
   const d = await jpost('/motion/config', p);
   $('motion').textContent = JSON.stringify(d, null, 1);
