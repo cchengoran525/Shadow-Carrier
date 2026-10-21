@@ -101,7 +101,9 @@ def _imu_zero():
 turn_state = {"active": False, "target": None, "yaw": None, "err": None,
               "started": 0.0, "result": "idle"}
 turn_lock = threading.Lock()
-TURN_TOL_DEG = 3.0      # 到位判定
+TURN_TOL_DEG = 2.5      # 到位判定 (3→2.5: 减少过冲)
+TURN_P_GAIN = 8.0       # 原地转近目标降速: spd_eff=clamp(P_GAIN*|err|, TURN_MIN_SPD, spd)
+TURN_MIN_SPD = 130      # 近目标最低速度(重载下仍能维持转动)
 TURN_TIMEOUT_S = 10.0   # 超时保护
 TURN_DIFF = 60          # 转向差速量 (40→60, 重载档: 内轮需更大基础力矩)
 
@@ -169,8 +171,9 @@ def _turn_worker(deg, spd, pivot=False):
                 with turn_lock: turn_state["result"] = "ok"
                 break
             if pivot:
-                # 原地对转(MOVE L/R = 左右轮反向): 与 DIFF 弧线同向语义, 但 v=0
-                uart_send(f"MOVE {'L' if err > 0 else 'R'} {spd}")
+                # 近目标比例降速: 240 PWM 在 0.1s 环里会转过 ~17°, 是 3-4° 过冲主因
+                spd_eff = int(max(TURN_MIN_SPD, min(spd, TURN_P_GAIN * abs(err))))
+                uart_send(f"MOVE {'L' if err > 0 else 'R'} {spd_eff}")
             else:
                 hi = min(255, spd + TURN_DIFF)
                 lo = max(0, spd - TURN_DIFF)
@@ -1073,7 +1076,8 @@ def _t1_status():
 
 # ====== 速度/力矩现场调参 (重载档) ======
 MOTION_TUNE = os.path.expanduser("~kickpi/hri_logs/motion_tune.json")
-_FC_KEYS = {"BASE_SPD", "MIN_SPD", "PIVOT_PWM", "YAW_CORR_MAX", "BACK_SPD", "SEARCH_BACK_SPD"}
+_FC_KEYS = {"BASE_SPD", "MIN_SPD", "PIVOT_PWM", "YAW_CORR_MAX", "BACK_SPD",
+            "SEARCH_BACK_SPD", "MAX_OFFSET"}
 _FC_FLOAT_KEYS = {"W_DES_GAIN": 5.0, "W_DES_MAX": 180.0, "YAW_K": 20.0,
                   "YAW_DEAD": 20.0, "YAW_WHEEL_MIN": 255.0}
 _RK_KEYS = ("MANUAL_FWD_SPD", "HRI_APPROACH_SPD", "HRI_BACK_SPD",
