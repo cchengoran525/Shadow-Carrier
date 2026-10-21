@@ -61,8 +61,8 @@ bash ~/shadow_carrier_on_rockchip/scripts/health_check.sh
 
 | 项 | 现状 | 对现场意味着什么 |
 |---|---|---|
-| **转向通道** `TURN_ENABLED` | **False**（实机默认关）⚠️ | 实机擦身仍是旧逻辑：**弧线跟随 + 丢人后退 1.2s + 停车等**，不是"转头搜索"。要看新行为必须先标定（§4.3）再打开 |
-| **停驻转头接人** `tick(turn_only=True)` | 依赖 `/dev/shm/hri_state.json`，而 **HRI 不是 systemd 服务** ⚠️ | 板上默认**不会有这个文件** → 递物时车不会自动转头。预案：主人站**车正前方**递物，或手动起 `hri_state.py --live`（只发状态、不控车） |
+| **转向通道** `TURN_ENABLED` | **True（2026-10-20 启用）**；实机 passby 待 T4 验收 ⚠️ | 已能"转头保持视野"；若出现反向转/抖动，先 `/stop`，用 `/motion/config` 降 `PIVOT`，再跑 T4 |
+| **停驻转头接人** `tick(turn_only=True)` | **HRI 已是 systemd 服务**（`hri-state`，2026-10-20），`/dev/shm/hri_state.json` 持续更新 ✅ | 递物时车会按 HIDE/WAIT 做有界转头；服务异常看 `systemctl status hri-state`；退路仍是主人站正前递物 |
 | **雷达安全过滤** | 惰性契约：无 `/dev/shm/lidar_safety.json` = **逐字节直通** ✅ | 雷达没装/daemon 没跑时，一切行为与旧版完全一致；装了之后要盯 `GET /safety` |
 
 ---
@@ -165,9 +165,10 @@ python3 ~/shadow_carrier_on_rockchip/scripts/pivot_calib.py --yes \
 
 ### 6.1 passby（主人从旁边走过）
 - **现实工况**：走廊横向余量 0.8–1.5m（不是 2m）。
-- **默认行为（`TURN_ENABLED=False`）**：车弧线跟 → 人出画 → 后退 1.2s → 停车等。**镜头会"卡住"**。
-- **预案 A（安全优先）**：拍"车停住等人回来"，台词改成"它原地等我"。
-- **预案 B（标定后）**：`pivot_calib` 通过 → 开 `TURN_ENABLED` → 重跑；此时才是"掉头保持视野"的镜头。
+- **当前行为（`TURN_ENABLED=True`，2026-10-20 起）**：人出画侧 → 转向通道 TURN/BLIND/SEARCH 保视野；近距框高门只认正前，侧向不再误停。**待 T4 12 条实测**。
+- **旧行为（历史）**：`TURN_ENABLED=False` 时为"弧线跟 → 出画 → 后退 1.2s → 停车等"，镜头会卡住。
+- **预案 A（安全优先）**：若 T4 出现反向转/贴人，立即 `/stop`，拍"车停住等人回来"。
+- **预案 B**：用 `/motion/config` 降 `PIVOT`/`BASE` 后重跑；`pivot_calib` 仍用于拿真实 °/s。
 - **走位**：主人从车**侧后 1.2–1.5m** 绕过；不要贴着 0.5m 挤过（`C6`）。
 - **机位**：第三人从车后方侧拍，同时拍到人与车的相对位置。
 
@@ -178,6 +179,7 @@ python3 ~/shadow_carrier_on_rockchip/scripts/pivot_calib.py --yes \
 
 ### 6.3 HIDE / 选点
 - HIDE 依赖 `grid.json` 新鲜（TTL 30s）与 `geometry_daemon`；**实机 HIDE 端到端未验** ⚠️。
+- 2026-10-20 起：`hri-state` 常驻 + `geometry-parked.timer` 每 20s 在停驻域刷新 grid；先看 `grid.json` 的 `ts` 是否 <60s。
 - 预案：车手动挪到墙根，台词不变（"它自己找了个不挡路的地方"改口播为"它停到墙边"）。
 
 ### 6.4 门 / 电梯 / 门槛
