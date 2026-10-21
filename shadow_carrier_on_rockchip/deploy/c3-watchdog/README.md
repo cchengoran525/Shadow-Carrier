@@ -87,3 +87,22 @@ sudo tail /var/log/c3_watchdog.log
 4. **固件**：USB 连接时不进 light sleep、不重配 USB 引脚、尽早 mux DP/DM；避免运行中看门狗复位。
 5. **保留** `c3-watchdog` + 冷启动检查单；S3 的 udev 别名与 `CDCOnBoot` 参数要重做（V2 §5 已提）。
 
+## 已验证的软件恢复：xHCI 深度复位（2026-10-21，免拔插）
+
+本板拓扑：**C3 = `xhci-hcd.4.auto`**（`usbdrd/fcc00000.dwc3`, bus5, OTG/DRD）；**相机 = `xhci-hcd.5.auto`**（`usbhost/fd000000.dwc3`, bus7, Host）——**不同控制器**。
+
+```bash
+# 手动深度复位（需 root）
+echo xhci-hcd.4.auto > /sys/bus/platform/drivers/xhci-hcd/unbind
+sleep 2
+echo xhci-hcd.4.auto > /sys/bus/platform/drivers/xhci-hcd/bind
+```
+
+**实测**：unbind 后 C3 消失（相机仍在）；bind 后 **C3 1s 内重新枚举**、`/dev/ttyACM0` 回来、**相机完全不受影响**（fps 14.4 / age 10ms）。
+**看门狗已集成**：C3 持续 absent **30s** 自动做一次深度复位（冷却 60s）；日志 `deep reset xHCI ...` → `recovered via xHCI deep reset`。
+
+**边界（重要）**：深度复位只对"设备还供电、D+ 仍上拉，但主机没枚举"有效。若 C3 **真掉电/没上拉**，bind 也看不见——这时只能：
+- **可控 VBUS/端口电源**（GPIO+MOSFET 或支持 `uhubctl` 的 hub）→ 看门狗断电 1s 再上电，强制重新枚举；
+- 或独立 5V + 大电容/换线，减少掉电本身。
+
+
