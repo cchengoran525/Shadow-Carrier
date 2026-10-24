@@ -50,9 +50,13 @@ arduino-cli compile --fqbn "esp32:esp32:esp32c3:CDCOnBoot=cdc" shadow_carrier_on
 | 服务 | 端口 | 功能 |
 |------|------|------|
 | ap-hotspot | WiFi | `ShadowCarrier-RK` / `shadow123456`, NM已排除wlan0 |
-| rk-control | 80 | 网页遥控 + USB CDC→C3 |
+| rk-control | 80 | 网页遥控 + USB CDC→C3 + HRI 动作桥 |
 | video-stream | 8080 | YOLO检测 + MJPEG推流 |
 | camera-usb-fix | — | 保持相机 USB 常供电(禁用 autosuspend), 见 `deploy/camera-usb-fix/` |
+| imu | — | IMU 采集 → `/dev/shm/imu.json` |
+| c3-watchdog | — | C3 USB 枚举守护（usbreset / xHCI 深复位） |
+| hri-state | — | HRI 五态状态机 → `/dev/shm/hri_state.json`（`--owner-source file`） |
+| geometry-parked.timer | — | 停驻域每 20s 刷新 `grid.json`（仅 WAIT/HIDE） |
 
 ### 一键健康自检（demo 前每次开机跑）
 
@@ -109,7 +113,7 @@ WiFi 断开重连后，Safari 有时显示"无连接"，需杀掉标签页重开
 ### 4. 电池/扭矩预算触底 (demo 运行硬前提)
 实测：架空时双轮能转但需"外扰一下"才持续；**地面怎么扰都不动**；负重仅 +20g（排除重量）；2S 电池实测 7.6V（约 40~50% 电量）。
 单侧分测左右轮都能独立转 ⇒ 电气/驱动/信号正常，**问题在扭矩预算临界**（电量↓ × 摩擦↑ 叠加）。
-判读与处置（详见 `gimbal/README.md` 与 EXCHANGE 10-04）：① 满电 8.4V 复测 + 负载下量电压（跌>0.5~1V = 电池/线材）② TB6612 VM 并 470~1000µF ③ 电源修好后统一复标速度常量（`BASE_SPD 100→140~160`、`MIN_SPD 60→80~90` 离开固件死区、`ARC_SLOW 70→90`）。
+判读与处置（详见 `gimbal/README.md` 与 EXCHANGE 10-04）：① 满电 8.4V 复测 + 负载下量电压（跌>0.5~1V = 电池/线材）② TB6612 VM 并 470~1000µF ③ 电源修好后统一复标速度常量（**历史建议**：`BASE_SPD 100→140~160`、`MIN_SPD 60→80~90`；**现以 2026-10-21 重载档为准**：245/155/240）。
 ⚠️ **demo 排练/展示前务必满电 + 带备用电池**。
 > **2026-10-21 重载档**（车体加重后基础力矩不足）：`BASE_SPD 220→245`、`MIN_SPD 120→155`、`PIVOT_PWM 190→240`、`MANUAL_FWD_SPD 240→255`；`ARC 100/90→140/120`、`TURN_DIFF 40→60`、`HRI` 动作速度同步上调。现场可用 `/test` 的 **⑦ 速度/力矩** 继续微调（立即生效、持久化）。若 255 仍带不动，优先查**满电/线材/齿轮箱**，而不是继续加 PWM（已到量程上限）。
 

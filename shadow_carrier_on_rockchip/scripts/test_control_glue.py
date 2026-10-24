@@ -136,4 +136,21 @@ assert isinstance(_h.get("uart"), dict) and _h["uart"]["fail"] >= 1, \
 print(f"  fail×{rk.uart_stats['fail']} last_cmd={rk.uart_stats['last_cmd']!r}"
       f" · /healthz.uart.fail={_h['uart']['fail']}")
 
+print("\n== F. OBS 兜底: blocked/cm<=35 拦前进, 后退/停止放行 (2026-10-24) ==")
+now = time.monotonic()
+rk.obs_state.update(t=now, blocked=True, cm=20)
+assert rk._obs_guard("MOVE F 200") == "STOP"
+assert rk._obs_guard("DIFF L200 R100") == "STOP"
+assert rk._obs_guard("DIFF L200 R0") == "STOP"
+assert rk._obs_guard("DIFF L0 R0") == "DIFF L0 R0"
+assert rk._obs_guard("MOVE B 80") == "MOVE B 80"
+assert rk._obs_guard("STOP") == "STOP"
+rk.obs_state.update(t=now, blocked=False, cm=30)
+assert rk._obs_guard("MOVE F 200") == "STOP"
+rk.obs_state.update(t=now, blocked=False, cm=80)
+assert rk._obs_guard("MOVE F 200") == "MOVE F 200"
+rk.obs_state.update(t=now - 5, blocked=True, cm=10)
+assert rk._obs_guard("MOVE F 200") == "MOVE F 200"      # 过期 → 放行
+print("  blocked→STOP · cm30→STOP · DIFF前进→STOP · 后退/停止→放行 · 过期→放行")
+
 print("\n全部断言通过")

@@ -237,7 +237,39 @@ def uart_open(port):
 uart_stats = {"fail": 0, "last_fail_ts": None, "last_cmd": None, "last_err": None}
 _uart_warn_t = [0.0]   # 告警节流锚点(5s 一条, 避免刷屏)
 
+_obs_guard_veto = 0
+
+def _obs_guard(cmd):
+    """超声兜底 (2026-10-24): OBS 新鲜且 blocked 或 cm<=35 时，前进类命令即时改 STOP。
+    覆盖固件只拦 MOVE F、DIFF 命令间隙继续前进的缺陷(§1.2①)；手动/跟随都生效。"""
+    global _obs_guard_veto
+    if not isinstance(cmd, str):
+        return cmd
+    with obs_lock:
+        fresh = time.monotonic() - obs_state["t"] < 1.0
+        blocked = bool(fresh and obs_state["blocked"])
+        cm = obs_state["cm"] if fresh else None
+    if not blocked and (cm is None or cm > 35):
+        return cmd
+    c = cmd.strip().upper()
+    stop = False
+    if c.startswith("MOVE F"):
+        stop = True
+    elif c.startswith("DIFF"):
+        try:
+            parts = c.split()
+            l = int(parts[1].lstrip("L"))
+            r = int(parts[2].lstrip("R"))
+            stop = (l + r) > 0
+        except Exception:
+            stop = False
+    if stop:
+        _obs_guard_veto += 1
+        return "STOP"
+    return cmd
+
 def uart_send(cmd):
+    cmd = _obs_guard(cmd)
     cmd = _safety_filter(cmd)
     if cmd is None:
         return False
@@ -1257,7 +1289,8 @@ def _motion_load():
 
 def _healthz():
     out = {"mode": _get_mode(),
-           "uart": dict(uart_stats)}   # 白名单#3: 串口失败计数(fail>0 且持续增长 → 死fd, 重启rk-control)
+           "uart": dict(uart_stats),   # 白名单#3: 串口失败计数(fail>0 且持续增长 → 死fd, 重启rk-control)
+           "obs_guard_veto": _obs_guard_veto}  # 2026-10-24: 超声兜底拦截次数
     try:
         d = json.loads(urllib.request.urlopen(
             "http://127.0.0.1:8080/api/detections", timeout=1.0).read())

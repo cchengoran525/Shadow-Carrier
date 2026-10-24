@@ -3,7 +3,7 @@
 > 写于 2026-10-20（HEAD `7b4ddc5`）。距 10-31 demo **11 天**。
 > 用途：把"能跑"变成**可验收、可复现、可拍**。每个场景一张卡：布置 → 步骤 → 成功标准 → 失败/中止 → 记录。
 > 配套：`DEMO_PLAN.md`（8 分镜）、`ARCHITECTURE.md`（接口）、`COORDINATION_REVIEW.md`（缺口）。
-> 阈值来自代码实测常量：`BASE_SPD=220`、`MIN_SPD=120`、`PIVOT_PWM=190`、`PIVOT_RATE_DPS=174`、`NEAR_STOP_M=0.7`、`LOST_TIMEOUT_S=2.4`、认主 `3s/~12 样本`、HRI `static_need 5s / hide_after 20s`。
+> 阈值来自代码实测常量（2026-10-21 重载档）：`BASE_SPD=245`、`MIN_SPD=155`、`PIVOT_PWM=240`、`MANUAL_FWD_SPD=255`、`NEAR_STOP_M=0.7`、`LOST_TIMEOUT_S=2.4`、认主 `3s/~12 样本`、HRI `static_need 5s / hide_after 20s`；现场用 `/motion/config` 微调。
 
 ---
 

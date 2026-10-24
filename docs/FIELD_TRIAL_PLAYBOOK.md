@@ -49,7 +49,7 @@ bash ~/shadow_carrier_on_rockchip/scripts/health_check.sh
 | 级 | 状态 | 进入条件 | 切换 |
 |---|---|---|---|
 | **L0 全自动** | FOLLOW 自动跟随 | `health_check` 全绿 + 认主成功 + 人车距 ≥1.2m | `POST /mode/follow` |
-| **L1 限速自动** | 跟随但慢 | 检测 `age_ms` 偶发偏高 / 地面湿 / 人多 | 临时改 `BASE_SPD`（改完必须跑回归）或由雷达包络限速 |
+| **L1 限速自动** | 跟随但慢 | 检测 `age_ms` 偶发偏高 / 地面湿 / 人多 | **临时限速需统筹批准**（V1 速度冻结；改完必须跑回归）或由雷达包络限速 |
 | **L2 手动** | 人开车 | 行为异常（乱转/跟错人/不跟随）、构图需要 | `POST /mode/manual` + `/forward /back /left /right` |
 | **L3 停机** | 车不动、只录视频 | 硬件故障无法排除；demo 当天兜底 | 断电；素材改用已录 |
 

@@ -186,8 +186,7 @@ a{color:var(--blue);text-decoration:none}
     </div>
     <div class="row" style="margin-top:10px">
       <button class="btn green wide" onclick="applyMotion()">应用</button>
-      <button class="btn gray wide" onclick="preset('heavy')">重载档</button>
-      <button class="btn gray wide" onclick="preset('standard')">标准档</button>
+      <button class="btn gray wide" onclick="preset()">恢复默认（重载档）</button>
       <button class="btn gray wide" onclick="loadMotion()">读取</button>
     </div>
     <div class="hint">值域 0–255；立即生效并持久化到 <code>~/hri_logs/motion_tune.json</code>。</div>
@@ -422,17 +421,17 @@ async function applyMotion(){
   });
   $('motion').textContent = JSON.stringify(d, null, 1); loadMotion();
 }
-async function preset(which){
-  const p = which === 'heavy'
-    ? {BASE_SPD:245, MIN_SPD:155, PIVOT_PWM:240, MANUAL_FWD_SPD:255,
-       YAW_CORR_MAX:20, YAW_K:2.0, W_DES_GAIN:0.18, BACK_SPD:110, SEARCH_BACK_SPD:95,
-       HRI_APPROACH_SPD:120, HRI_BACK_SPD:120, HRI_GOTO_SPD:140, HRI_GOTO_TURN_SPD:220}
-    : {BASE_SPD:220, MIN_SPD:120, PIVOT_PWM:190, MANUAL_FWD_SPD:240,
-       YAW_CORR_MAX:16, YAW_K:1.0, W_DES_GAIN:0.08, BACK_SPD:85, SEARCH_BACK_SPD:70,
-       HRI_APPROACH_SPD:80, HRI_BACK_SPD:80, HRI_GOTO_SPD:90, HRI_GOTO_TURN_SPD:110};
+async function preset(){
+  // 2026-10-24: 旧“标准档”是重载档之前的过期值（会降回带不动的档位），已删除；
+  // 唯一预设 = 当前代码默认（10-21 重载档，YAW_K=1.0）。
+  const p = {BASE_SPD:245, MIN_SPD:155, PIVOT_PWM:240, MANUAL_FWD_SPD:255,
+             YAW_CORR_MAX:20, YAW_K:1.0, W_DES_GAIN:0.18, BACK_SPD:110, SEARCH_BACK_SPD:95,
+             HRI_APPROACH_SPD:120, HRI_BACK_SPD:120, HRI_GOTO_SPD:140, HRI_GOTO_TURN_SPD:220};
   await jpost('/motion/config', p); loadMotion();
 }
 async function setTurn(on){
+  if (!confirm(on ? '开启转向通道？会改变 passby 行为（A/B 臂切换）。'
+                  : '关闭转向通道？T4 将在无转向臂上跑。')) return;
   await jpost('/motion/config', {TURN_ENABLED: on});
   $('turnState').textContent = '当前: ' + (on ? '开' : '关');
 }
