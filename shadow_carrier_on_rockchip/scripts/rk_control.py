@@ -1405,6 +1405,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_response(400); self._text('BAD')
             return
         if self.path == '/move':
+            # 服务端门禁(2026-10-24 审查§1.1②/白名单#1): /move 与 /forward 等同属手动运动
+            # 端点。/forward~/stop 组 2026-10-16 加了"跟随时锁死", /move 当时漏了 ——
+            # 是唯一能在跟随中从面板/curl 抢底盘的通道。/stop 例外语义不适用本端点。
+            if _get_mode() != "manual":
+                self._json({"ok": False, "error": "follow mode: 手动运动端点已锁"}); return
             try:
                 cl = int(self.headers.get('Content-Length', 0))
                 body = json.loads(self.rfile.read(cl)) if cl else {}
