@@ -12,10 +12,10 @@ LOCAL_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OPT=(-i "$KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no)
 
 echo "== 同步 $LOCAL_ROOT → $HOST:$REMOTE_ROOT =="
-ssh "${OPT[@]}" "$HOST" "mkdir -p ~/$REMOTE_ROOT/{scripts,gimbal,communication,state/calib,C3_USB_Controller}"
+ssh "${OPT[@]}" "$HOST" "mkdir -p ~/$REMOTE_ROOT/{scripts,gimbal,communication,state/calib,C3_USB_Controller,deploy,configs,world/fusion}"
 
 scp "${OPT[@]}" -r \
-    "$LOCAL_ROOT/scripts/."            "$HOST:$REMOTE_ROOT/scripts/" 
+    "$LOCAL_ROOT/scripts/."            "$HOST:$REMOTE_ROOT/scripts/"
 scp "${OPT[@]}" -r \
     "$LOCAL_ROOT/gimbal/."             "$HOST:$REMOTE_ROOT/gimbal/"
 scp "${OPT[@]}" -r \
@@ -24,6 +24,14 @@ scp "${OPT[@]}" -r \
     "$LOCAL_ROOT/state/."              "$HOST:$REMOTE_ROOT/state/"
 scp "${OPT[@]}" -r \
     "$LOCAL_ROOT/C3_USB_Controller/."  "$HOST:$REMOTE_ROOT/C3_USB_Controller/"
+# 2026-10-24(审查§2.2/白名单#6): 此前不同步 deploy/ 与 configs/ —— 看门狗脚本、
+# udev 规则、lidar_guard.json 的更新到不了板子; world/ 是 geometry/lidar 代码源。
+scp "${OPT[@]}" -r \
+    "$LOCAL_ROOT/deploy/."             "$HOST:$REMOTE_ROOT/deploy/"
+scp "${OPT[@]}" -r \
+    "$LOCAL_ROOT/configs/."            "$HOST:$REMOTE_ROOT/configs/"
+scp "${OPT[@]}" -r \
+    "$LOCAL_ROOT/world/."              "$HOST:$REMOTE_ROOT/world/"
 
 echo "== 重启服务 =="
 ssh "${OPT[@]}" "$HOST" "echo kickpi | sudo -S systemctl restart rk-control.service video-stream.service 2>/dev/null; systemctl is-active rk-control video-stream"

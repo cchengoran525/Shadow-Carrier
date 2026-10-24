@@ -39,3 +39,6 @@ shadow_carrier_on_rockchip/simulation/webots/logs/
 
 # macOS AppleDouble files (Webots cp 出来的 ._* 资源叉)
 shadow_carrier_on_rockchip/simulation/webots/worlds/._*
+
+# 2026-10-24(白名单#6): .bak 整目录已退出 git 跟踪(纯归档, 防误读误改); 本地文件保留
+shadow_carrier_on_rockchip.bak/

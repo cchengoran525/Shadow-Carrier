@@ -114,9 +114,13 @@ owner 模板质量（穿鲜艳衣物）或更稳的 ReID，长期方案=码盘/I
 
 ```
 KEEP_EDGE_DEG=24   KEEP_RATE=10    HOLD_TIMEOUT=1.5  SEARCH_TIMEOUT=4
-SCAN_AMP=45(定向)  SCAN_RATE=20    GAZE_ENABLED=True(可一键关闭回退)
+SCAN_AMP=45(定向)  SCAN_RATE=20    GAZE_ENABLED=False(2026-10-08 统筹裁定: demo 默认不依赖云台运动)
 BASE_ENTER=20°     BASE_EXIT=10°   ARC L100/R70      CONF_MIN=0.5
 ```
+
+> 2026-10-24 修正（审查§3.1 #10 / 白名单#6）：本表此前写 `GAZE_ENABLED=True`，与代码
+> （`rk_control.py` GAZE_ENABLED=False）及三份裁定文档（DEMO_PLAN §统筹 10-08、
+> V2_LIDAR_AVOIDANCE、COORDINATION_REVIEW）相反。以代码现值 False 为准。
 
 ### 里程碑（更新）
 

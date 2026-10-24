@@ -1,5 +1,10 @@
 # Shadow Carrier 配置文件
 # YAML格式，Python可直接读取
+#
+# ⚠️ 已失效（2026-10-24 审查§2.2 / 白名单#6）：全项目无代码读取本文件，且内容与
+# 实机漂移(device_id:10 vs /dev/camera0、1920x1080 vs 640x480、/dev/ttyUSB0+二进制
+# 协议 vs ttyACM0+ASCII、PID 参数无消费者)。真实部署配置在 ../configs/（udev 规则、
+# systemd、lidar_guard.json 等）。保留仅作历史参考，勿据此配置新板。
 
 # --- 主人识别 ---
 owner:
