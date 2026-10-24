@@ -218,10 +218,15 @@ HRI 的 YIELD），因为"往左让还是往右让"是社交决策，不是几�
 ### 5.1 扫描帧（生产者 → daemon）`/dev/shm/lidar_scan.json`
 
 ```json
-{"frame_id": 4211, "ts": 1792119149.819,
+{"frame_id": 4211, "ts": 10892.597,
  "points": [[0.0, 2.34], [1.2, 2.31], ...]}      // [方位角°, 距离m]
 ```
 兼容 `{"angles":[...], "ranges":[...]}`（标准雷达输出）。**原子替换写入**（tmp + rename）。
+
+**`ts` 约定用 `time.monotonic()`**（与 guard 内部时钟同源）。2026-10-24 修订：本节旧示例
+曾写 epoch 值——guard 按 `now(monotonic)-ts` 算帧龄，epoch 帧的 `scan_age` 恒为 None，
+**stale 检测静默失效**（实测踩中，雷达拔线系统仍认为数据新鲜）。guard 现已双时钟兼容
+（`lidar_guard.py` update()，T11c/T11d 断言），monotonic 为约定首选，实测记录见附 D。
 
 ### 5.2 安全包络（daemon → 命令路径）`/dev/shm/lidar_safety.json`
 
@@ -381,6 +386,8 @@ SIM_LIDAR=1 ./run_robustness.sh "baseline" 1     # 回归: 开雷达后基线仍
 ## 附 B：硬件到手后的待办（按顺序）
 
 1. [ ] YDLidar-SDK 在 aarch64 编译（PC 编好 sftp 推板）→ 写 `lidar_scan.json` 的**扫描桥**（~60 行）
+   > 2026-10-24：扫描桥的**路线 2（ROS）版**已入仓并在 PC 实测（`world/fusion/ros_scan_bridge.py`，附 D）。
+   > 路线 1 的 SDK 直连仍待板子；两路线产出同一契约文件，可互换，guard/daemon/rk_control 零改动。
 2. [ ] daemon 上 systemd 单元（照 `imu.service` 模式）+ 健康检查（`/safety` 的 `mode/scan_age_s`）
 3. [ ] §2.3 装车验收 3 条 + §8.4 参数定标 → 更新 `configs/lidar_guard.json`
 4. [ ] §8.3 上车三步；把实机数据回填本文（把"待实测"改成实测值）
@@ -393,3 +400,45 @@ SIM_LIDAR=1 ./run_robustness.sh "baseline" 1     # 回归: 开雷达后基线仍
 §14.2 的 L2（相机不可信）要求"毫米波在场 + 激光/超声安全"。本设计提供的就是那个"激光安全"格：
 `mode=ok && n_points≥20` 时，避障在**无光照条件**下照常工作（雷达不受光照影响），
 L2 的"慢速跟走"因此有了硬约束来源。切换质量实验（§14.5）可直接用本文的 `mode/ok` 作为传感器可用性输入。
+
+---
+
+## 附 D：2026-10-24 PC 科研轨首测回填（X3Pro 实机 + 路线 2 桥）
+
+X3Pro 到手，先在 PC 科研轨（t2linux MacBookPro + Ubuntu 24.04 + ROS 2 Jazzy，`ros-jazzy-desktop`
++ `slam_toolbox` 已装）上把整条管线用真实数据跑通。机器人端（RK）一行未动——§3 三段解耦的收益兑现。
+
+### D-1 实测一手数据（ROS 驱动 `x3pro_lidar` 节点，/dev/ttyUSB0 CP2102）
+
+| 项 | 实测 | 与本文预设对照 |
+|---|---|---|
+| 帧率 | **10.0Hz**（帧间时间戳 0.100s 稳定） | ✅ 与 §1 时延链"扫描 10Hz"一致 |
+| 每帧点数 | 原始 ~233，**有效 ~80-100** | ⚠️ §5.4 示例的 412 是降转速后的量级，10Hz 踩不到 |
+| 飞点滤波生效性 | `spike_dense_n=100`：真实帧多数 <100 点 → 走**稀疏帧路径，飞点剔除大部分时间不生效** | ⚠️ 新发现（§4.1） |
+| 量程 | range_max 8.0m；室内有效回波 0.10-4.3m | ✅ 与 `range_max_m=8.0` 一致 |
+| 无效点形式 | `inf` + 0.000x 毫米级噪点 | 桥里已滤（guard 近场滤波是第二道） |
+| 角度约定 | ROS 左为正（CCW）→ 桥取负 → 契约右为正 | ✅ 与 §1 / test_bearing_convention 同源 |
+| TF | 驱动发布 `base_link→laser`（tf_static） | 对 guard 无关；SLAM 科研轨直接可用 |
+
+### D-2 端到端验证（真实房间数据）
+
+- 桥 → `lidar_guard_daemon` → `lidar_safety.json` 全链路通：`mode=ok`、~80 点、最近障碍方位/距离、
+  四向间隙、24 扇区、`person_legs`（桌面杂物按 5-45cm 宽度判为腿级——桌上跑的真实表现，上车即真腿）
+- stale 注入：帧停更 20.6s → `mode=stale, ok=False` ✅
+- 回归：`test_lidar_guard.py` **58 passed, 0 failed**（新增 T11c/T11d 双时钟断言），
+  `test_bearing_convention.py` 9 passed（其关于 `rk_control.owner_bearing` 左右正混用的结论仍开放）
+
+### D-3 本次修掉的问题
+
+| # | 问题 | 处理 |
+|---|---|---|
+| 1 | §5.1 旧示例 `ts` 为 epoch → epoch 帧 `scan_age` 恒 None，**stale 静默失效** | guard 双时钟兼容（epoch 与墙钟对齐判龄，超前墙钟不判）+ §5.1 改 monotonic + T11c/T11d |
+| 2 | `--record` 默认 2Hz 只够 guard 回放调参，**SLAM 科研轨需要全速率** | 定位收窄：`--record` 只服务 guard 调参；SLAM 备料走 rosbag2（10Hz LaserScan） |
+
+### D-4 上板前要做的决策（不阻塞装车）
+
+- **点密度旋钮**：X3Pro 采样率 ~3K/s 固定，10Hz → ~300 点/圈，`person_legs` 每条腿只分到 3-6 点，
+  宽度分类方差大（直接影响 follow 升级 §1 的输入质量）。扫描频率降到 6-7Hz → ~450-500 点/圈，
+  对齐本文示例量级；代价是动态场景帧更新变慢。**装车实测后取舍**，配置在驱动侧，不在 guard。
+- **生产者载体**：路线 2（ROS）已验证可用；板上走路线 1（SDK 直连）还是装 ROS 2 Humble 走路线 2，
+  等 KickPi 系统镜像确认后定。倾向 SDK 直连——板上内存/CPU 紧，省 1-2GB ROS 依赖与 DDS 常驻开销。

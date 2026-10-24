@@ -231,6 +231,17 @@ cmd, note = lg.apply_to_ascii("MOVE F 180", env_old, CFG)
 check("T11b stale → 限速而非停车", cmd.startswith("MOVE F") and int(cmd.split()[2]) < 180,
       "%s (%s)" % (cmd, note))
 
+# T11c/T11d: ts 双时钟兼容(2026-10-24 实测发现): 生产者若写 epoch(time.time(),
+# 旧文档 §5.1 示例值), 不得让 stale 检测静默失效(见 V2_LIDAR_AVOIDANCE.md 附 D)
+g = lg.Guard(CFG)
+env_ep = g.update({"ts": time.time() - 3.0, "points": ring(6.0)}, now=time.monotonic())
+check("T11c epoch 时钟的过期帧 → 同样判 stale", env_ep["mode"] == "stale", str(env_ep["mode"]))
+g = lg.Guard(CFG)
+env_ep2 = g.update({"ts": time.time() - 0.05, "points": ring(6.0)}, now=time.monotonic())
+check("T11d epoch 时钟的新鲜帧 → mode=ok 且 scan_age 正常", env_ep2["mode"] == "ok"
+      and env_ep2["scan_age_s"] is not None and env_ep2["scan_age_s"] <= 0.6,
+      "%s age=%s" % (env_ep2["mode"], env_ep2["scan_age_s"]))
+
 # ============ T12 命令过滤: 四种命令语义 ============
 g = lg.Guard(CFG)
 e_blk = feed(g, wall(0.30) + ring(6.0, lo=60, hi=300))
