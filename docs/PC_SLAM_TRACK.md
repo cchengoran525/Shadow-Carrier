@@ -129,6 +129,39 @@ X3Pro 插 PC、驱动出 `/scan` → `ros2 bag record /scan /tf /tf_static`。�
 
 ---
 
+## 6.1 E1 首跑结果（2026-10-24 夜，含 8 条工程教训）
+
+**结论：管线全通 ✅，手持常速跟丢 ❌——边界发现：自然步速手持超出 300 点雷达的扫描匹配跟踪能力。**
+
+数据：149.9s / 1785 帧（~12Hz，146-174 有效点/帧，全程质量稳定）。产出：`pc_track/data/e1_firstmap_1024/`
+（bag + 2 版 PGM + 2 版 posegraph + PNG 视图）。地图为"起步段局部视图"（占据 61-75 格 vs 完整房间
+轮廓估算 ~192 格；自由空间碎成 52 个孤岛）——三组配置（X3Pro 定制 / 官方默认 / 调参版：每帧处理+
+加大搜索窗）表现一致：起步段成图，行走开始即跟丢。
+
+**排查链（全部排除后归因于运动本身）**：数据质量 ✅（桶分析）；角标定 ✅（63 种点数对应 63 种
+increment，驱动每帧自适应重算，自洽）；DDS 传输 ✅（最终 `ROS_LOCALHOST_ONLY=1` 全栈统一后复测）。
+归因：自然步速 = 帧间位移/旋转超窗 + X3Pro 无运动补偿的扫描内畸变 + 手持倾斜使扫描平面切房间高度
+变化。**对策已写进 first_map.sh 提示：慢（半速）/ 稳（端平）/ 直（小步转身）；根治靠 V2b 车载建图**
+（底盘本来就是雷达的载体，手持只是 PC 轨的早期替代）。
+
+**八条工程教训（每条都真实咬过，按时间序）**：
+
+| # | 教训 | 固化位置 |
+|---|---|---|
+| 1 | `set -u` 与 ROS setup.bash 不兼容（AMENT_TRACE_SETUP_FILES 未绑定） | first_map.sh: source 时 `set +u/-u` 包裹 |
+| 2 | 双驱动进程抢同一串口 → 字节流瓜分，帧乱（40~595 点/帧）。**杀旧再启新**；驱动启动一次为限 | restart 脚本先清场 |
+| 3 | USB 重插后枚举号变（ttyUSB0→1）且旧驱动**静默死亡无日志**（驱动健壮性缺口，待补读失败重连） | 驱动用 by-id 路径 ✓；建议驱动补重连 |
+| 4 | rosbag2 mcap：运行中 0 字节是**分块缓冲**（close 才落盘）；强杀 → 尾部截断+缺 metadata.yaml。**抢救配方**：pip mcap 直读完整 chunk（容错尾部异常）→ rosbag2_py SequentialWriter 重写规范 bag | 本文 §6.1；实操已验证（1785 帧全量救回） |
+| 5 | `ros2 bag play` 的 /tf_static 默认 volatile，slam 要 transient_local → **QoS 不兼容静默丢 TF**。必须 `--qos-profile-overrides-path` 锁存化 | restart_offline_stack.sh |
+| 6 | **手持无里程计必须补恒等静态 TF `odom→base_link`**，否则消息过滤器队列塞满全丢（官方文档没写清的前提） | first_map.sh + restart 脚本已固化 |
+| 7 | T2 机（多网卡：wifi + t2_ncm）Fast DDS 对新参与者间歇失联（CLI 工具收不到、TF 查不到）。**全栈统一 `ROS_LOCALHOST_ONLY=1` 后消失** | restart 脚本；建议本机 shell 常驻 export |
+| 8 | `pkill/pgrep -f` 的模式串出现在自己命令行里 → 自杀（一晚踩 4 次）。**用磁盘脚本承载清理逻辑**，命令行只含脚本路径 | restart_offline_stack.sh 的存在本身就是教训 8 |
+
+**E1 判定：管线验收通过（bag→回放→匹配→成图→存档闭环）；地图质量不达标 → E1 需按新走动协议重跑，
+或并入 V2b 车载建图。E2-E5 待 E1 达标后进行。**
+
+---
+
 ## 7. 产物与回流规则
 
 | 产物 | 去向 | 可否回流产品仓 |
