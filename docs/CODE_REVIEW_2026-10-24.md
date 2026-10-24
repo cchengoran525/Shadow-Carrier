@@ -555,3 +555,64 @@ A/B-1 的 OFF 臂即回退开关演练（RUNBOOK §4），一举两得。**V_GAT
 ---
 
 *回执人：审查线（ZCode 会话）。所有改动未推送；板端 smoke 与 T4 由机主执行。*
+
+---
+
+## 13. 回执 E：文档矛盾增量复审（2026-10-24 下午，HEAD=26f7bff）
+
+> 任务：核对 §3 旧 21 条现状 + 挖 10-17 后新增/变更文档的新矛盾。方法：逐条 grep/复读，
+> 每条给 file:line。**T4 判据已确认单一来源**（RUNBOOK 声明"判据来源 FIELD_TEST_PLAN §3"，
+> 两处 0.6m/停≤1.0s/0 换主口径一致，不列矛盾）。
+
+### 13.1 已解决（自上轮审计以来）
+
+| 旧# | 内容 | 解决方式 |
+|---|---|---|
+| #10 | GAZE_ENABLED 表 True | 本批 `2b527a8` 修正；全 docs 无残留 True 引用（REVIEW:152 / V2_LIDAR:51 均为合法条件句） |
+| #3b | DEMO_PLAN"原地转已实装" vs Playbook 旧行为 | `784281b` playbook 诚实表更新到 post-10-20（:168 现行为 True），DEMO_PLAN 说法与事实一致化 |
+| #11a | demo 状态无 10-19 后快照 | `5d86fce` COORDINATION_REVIEW v2（10-19/20，12 天作战表 §6）+ playbook 诚实表提供新快照 |
+| #11b | "A1.3 动作层无执行器"缺口描述 | `bef9e10` 动作桥+hri-state 服务落地，COORDINATION_REVIEW v2 已按"接线"口径更新 |
+
+### 13.2 仍开放（原样或残留）
+
+| 旧# | 矛盾 | 现状证据 |
+|---|---|---|
+| #1 | "V2a/b/c"两义 | V2V3_ROADMAP:33（底盘）vs V2_PHONE_RELATIVE_NAV:202（相对估计）vs DEFERRED_WORK:122——三处原样 |
+| #2 | 雷达 L1 归 V2b/V2c | V2V3_ROADMAP:44（V2b）vs V2_CHASSIS:33（V2c）；附带 V2V3:45 仍写"51 断言"（实际 56） |
+| #3 | 绕行型 V2 vs V3 | DEFERRED_WORK:43,157（V2）vs V2V3_ROADMAP V3b——原样 |
+| #4 | 电源五版/XL4015 无终局 | 不装侧 §21.22:1675,:1733 vs 必买/推荐侧 :1074,:1106,:1286,:1328,:1391,:1507,:1515——原样无作废标记 |
+| #5 | 舵机三态 | V2V3:46（预算允许/冻结）vs §21.7 采购表 STS3215 vs 未提交 §21.34 ZP10S——原样 |
+| #6 | 相机 §7.6 vs §7.9 | CAMERA_SELECTION:210"不推荐" vs :262"可以买"，同日两节仍无修订声明 |
+| #8 | 权威源元规则打架 | shadow_carrier_on_rockchip/docs/ARCHITECTURE.md:139-149（PACKAGING 排期降背景）vs PACKAGING_PLAN:320（以本文档为准）|
+| #9 | Pre v0 已上线 vs 未实现 | DEFERRED_WORK:32 vs PACKAGING_PLAN:306——原样（套磁口径风险仍在） |
+| #11c | DEMO_PLAN §1b"整体≈78%" | DEMO_PLAN:25（10-08 口径）已被 COORDINATION_REVIEW v2 实质取代，但无"以 v2 为准"指针 |
+| #12 | baseline 8/8 PASS vs FAIL | webots README:51 vs :77——原样，10-18 修复后仍无回归记录 |
+| #13 | 冻结铁律 vs 实际 | REVIEW_AND_SEMESTER_PLAN:110,205"10 月中冻结"未改口（COORDINATION_REVIEW:14 已给新口径但上游未回改）；DEMO_VIDEO/README:4 仍按"10-11 冻结后立即拍"倒排 |
+| #14 | 12 月时间账 | PACKAGING:276"12 月–1 月 V2 整机+续航" vs V2V3:40（12月W2 才装完传感器）、:50（W3 起整合） |
+| #15 | ROADMAP.md 过时且无标记 | :5"躲到门边"（vs DEMO_PLAN 墙根离门9m）；且被 ARCHITECTURE §10 列为**计划权威**——权威本身最旧 |
+| #18b | 果冻/躲门边残留 | DEMO_PLAN:17 仍"果冻/水瓶"（:35 自己说须换）；REVIEW:16 场景一句话仍"躲到门边+果冻" |
+| §3.2 | 代码牵制 7 条 | 全部原样（属代码/拍板项，非文档修复） |
+
+### 13.3 新发现矛盾（10-17 后新增文档引入）
+
+| # | 矛盾 | 双方证据 | 影响 |
+|---|---|---|---|
+| N1 | **FIELD_TEST_PLAN 速度档过期一天** | FIELD_TEST_PLAN:6（10-20 写，HEAD 7b4ddc5）"BASE_SPD=220/MIN_SPD=120/PIVOT_PWM=190" vs 10-21 重载档 245/155/240（rockchip README:114、DEFERRED_WORK:135、代码） | T4 判据文档与车实际差一档；按 220 心算制动距离会低估 |
+| N2 | **DEFERRED_WORK §1.4 说转向链默认关** | DEFERRED_WORK:64"TURN_ENABLED=False"（10-11）vs FIELD_TRIAL_PLAYBOOK:64,168（True，10-20）、T0B_RUNBOOK:121、follow_controller.py:93 | §1.4 是"当前实现"权威描述节，读它的人会以为转向链关着 |
+| N3 | **playbook 内部：标定前置 vs 已启用** | FIELD_TRIAL_PLAYBOOK:101"只有标定完，才考虑置 True" vs :64 已 True 且待 T4 | §4.3 未更新；且 10-20 开启前 pivot_calib 是否跑过**无任何记载**（启用前置无记录，见 §9.3-③） |
+| N4 | **c3-watchdog README 能力表未随新功能更新** | 同文件 :12"C3 完全消失 ❌ 只能记日志" vs :90 起 xHCI 深复位（10-21 已验证恢复"消失"，脚本 deep_reset() 在 c3_watchdog.sh:46） | 表格低估现有能力（真掉电仍 ❌，枚举级消失已 ✅）；现场可能白插拔 |
+| N5 | **服务清单三套** | 板上 README:50-56 自启表 4 项（缺 imu/c3-watchdog/hri-state）vs FIELD_TEST_PLAN:24 列 5 项（缺 hri-state）vs health_check 实查 6-7 项（含 hri-state、geometry-parked.timer） | 换板/排障时对"该有几个服务"三个答案 |
+| N6 | **world/README.md 定位过期** | 自称"world_lab 独立实验区…收编进仓库时整体迁移为 world/ 模块"（08-24 口径）vs 该目录即生产代码（fusion 喂 sector_score/grid.json）且板上部署目录也叫 ~/world_lab | 三重身份（实验区/生产模块/板上目录名）没说清，新人必踩 |
+| N7 | **playbook 教现场改 BASE_SPD 与裁定相反** | FIELD_TRIAL_PLAYBOOK:52"L1 限速…临时改 BASE_SPD（改完必须跑回归）" vs DEFERRED_WORK:131"V1 期不再改 BASE_SPD"（机主裁定）+ COORDINATION_REVIEW:14"不调 V1 速度阈值" | 现场预案给了与两份裁定相反的操作指引（若"统筹批准后可改"应写明） |
+| N8 | **板上 README 四代速度并存** | rockchip README:112"BASE_SPD 100→140~160"（远古复标建议）、:273"BASE_SPD=220"、:277"PIVOT_PWM 110→190" vs :114 重载档 245/155/240 | 同文件四代数字，排障时不知道信哪个 |
+| N9 | **RUNBOOK 行号漂移** | T0B_T4_RUNBOOK:176"follow_controller.py:88 改回 False"——实际 :93 | 小；现场按行号找不到 |
+
+### 13.4 建议（按 demo 前收益排序，多为一行改动，待统筹批）
+
+1. N1+N8：FIELD_TEST_PLAN:6 与 rockchip README:112/273/277 的速度数字统一为重载档（245/155/240）并注明"10-21 重载档，/motion/config 可现场调"。
+2. N2：DEFERRED_WORK §1.4:64 补一句"2026-10-20 起TURN_ENABLED=True（T4 待验），本节其余描述为 10-11 快照"。
+3. N3：playbook §4.3:101 改"TURN_ENABLED 已于 10-20 开启；若换底盘/电池需重跑 pivot_calib 后再重启跟随"；并在 EXCHANGE 补记 10-20 开启时标定状态。
+4. N4：watchdog README:12 表拆两行："枚举级消失→✅ xHCI 深复位（:90）/真掉电→❌"。
+5. N5：三处服务清单统一为 health_check 的口径（6 服务+timer），板上 README 加 imu/c3-watchdog/hri-state 三行。
+6. N7：playbook:52 改"临时改 BASE_SPD **需统筹批准**（V1 速度冻结，DEFERRED_WORK §3）"。
+7. 其余旧账（#1/2/3/4/5/6/8/9/14/15）属 V2 规划拍板项，建议 demo 后按 §3.3 清单一次拍完再回改。
