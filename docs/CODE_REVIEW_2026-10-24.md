@@ -705,3 +705,33 @@ A/B-1 的 OFF 臂即回退开关演练（RUNBOOK §4），一举两得。**V_GAT
 ### 15.4 一句话优先级梯子（现状即应如此，文档化即可）
 
 **急停 /stop > 安全约束（超声/雷达 veto）> 模式所有权（manual/follow 互斥）> HRI 有界行为 > follow 弧线 > 手动测试（T0/T8 接管前先踢 follow）**。现状代码与这条梯子一致；把它写进 ARCHITECTURE.md 防后人破例。
+
+---
+
+## 16. 统筹批准与执行（2026-10-24，统筹直接执行）
+
+按 §7 白名单 + §14.3/§11-b，已执行三项（commit `8f713eb`，**未推**）。
+
+### 16.1 已执行
+
+1. **`/test` 面板预设（§14.3-1/2）**：删除过期“标准档”（BASE 220/MIN 120/PIVOT 190/W_DES 0.08 会降回带不动的档位）；唯一预设=当前重载档，`YAW_K=1.0`（其余 11 项与代码一致）；`setTurn` 加 confirm（§14.3-3，防 A/B 臂被误切）。
+2. **host-side OBS 兜底（§11-b）**：`rk_control._obs_guard` 前置 `uart_send`——OBS 新鲜且 `blocked` 或 `cm≤35` 时，`MOVE F` 与**前进 DIFF（L+R>0）**即时改 `STOP`；`MOVE B / STOP / DIFF L0 R0` 放行；`/healthz` 暴露 `obs_guard_veto`；`test_control_glue` 新增 F 段（blocked/cm30/DIFF/后退/过期五态）。
+3. **文档 N1/N2/N7 + N4/N5/N8**：`FIELD_TEST_PLAN` 速度档统一到重载 245/155/240/255；`DEFERRED_WORK §1.4` 注明 10-20 起 `TURN_ENABLED=True`；playbook L1 改“需统筹批准”；watchdog 能力表拆“枚举级/真掉电”；开机自启表补齐 6 服务+timer；旧速度数字标历史。
+
+### 16.2 回归
+
+- scripts **11 套** + world/fusion **4 套** = **15/15 PASS**；HTML JS `node --check` 通过。
+- 未跑板端（AP-only，SSH 超时）。
+
+### 16.3 未批准/押后
+
+- §11-c 参数改动（**观察不改**，V1 速度冻结）；§11-e 不做项。
+- §15.2 驱动所有权重构、`vetoed_by` 归因（V2）。
+- 固件、雷达/V2 几何、§13 的 V2 项、仿真重构。
+
+### 16.4 板端待办（上电后）
+
+1. sync + `systemctl restart rk-control`；
+2. smoke：`/move` 门禁（follow 拒 / manual 放行）、`/healthz.uart.fail`、`/healthz.obs_guard_veto`；
+3. **T0b `pivot -30` 必须向右**；T9 前左右手镜像实测；
+4. T4 按 §12.1：**1.2m 正常左右 → 0.8m 慢左右 → 1.5m → 快步速**；`_low_s` 与 OBS 兜底都会改跟随行为 → **T4/T10 必须重跑**。
