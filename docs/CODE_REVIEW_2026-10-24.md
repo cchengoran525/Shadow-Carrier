@@ -386,4 +386,172 @@
 ### 8.4 边界
 
 - **不改固件/雷达/大重构**；**不改 V1 速度**；**不并发改 `rk_control`/`follow_controller`**（T4 期间）；
-- **不推 GitHub**；回执写本文件 §9 起；每条建议必须带“证据 + 验收 + 风险”。
+- **不推 GitHub**；回执写本文件 §9 起；每条建议必须带”证据 + 验收 + 风险”。
+
+---
+
+## 9. 回执 A：白名单修改（2026-10-24，已执行）
+
+六条独立 commit，**均未推送**（等统筹）。基线 `f530587`，系列 `4ae2253..2b527a8`。
+
+### 9.1 改动清单
+
+| # | commit | 内容 | 验收（裁决原文） | 结果 |
+|---|---|---|---|---|
+| 1 | `4ae2253` | `/move` 补 `mode!=”manual”` 门禁（与 `/forward` 组同文案；`/stop` 例外不涉及本端点） | 跟随中 POST `/move` 被拒；T0/T8 仍可用（manual 下） | 代码层满足；**板端待验**（见 9.3-①） |
+| 2 | `c75093f` | `_low_s` 按真实帧间隔累加（`_low_last_t` 锚点），命中主人清零；`_low_s≥3.2s` → `tracker.reset()` 复活 | 低分持续 ≥3.2s 清跟踪器；`test_follow_dt`+`test_passby_lock_confirm` 绿 | 两测试 PASS（离线）；**改后需重跑 T4**（§7.4） |
+| 3 | `99fe04b` | `uart_send` 失败计数 `uart_stats` + 5s 节流告警 + `/healthz` 暴露 `uart` 字段；glue 测试新增 E 段 | `/healthz` 暴露 fail 计数；不再静默；重连未做（可选项，V2 配 udev 测试再做） | glue E 段 PASS，测试输出可见 `[UART] send FAIL ×1 ... err=TypeError`（证明不静默） |
+| 4 | `2f921c7` | 落格循环抽成 `stamp_objects()` 纯函数，`ring/sector` 越界跳过（>3m=ring3 超远，无格可落） | >3m 目标不再 IndexError；加一条单测 | 新增 `test_stamp_objects.py` 3 断言 PASS（含 `polar_to_sector(10°,3.5m)→ring=3` 语义锚） |
+| 5 | `d73661d` | 新增 `_ewma_bearing()` 最短角差 EWMA，门/物体两处替换；非跨缝与旧公式逐值一致 | 172°/-172° 平均为 180°（不是 34°）；加单测 | `test_geometry_map_wrap.py` 4 组 PASS：172/-172→178.4（旧公式 34.4），sector 4（正后方） |
+| 6 | `2b527a8` | GAZE_ENABLED 表改 False（对齐代码+三份裁定）；settings.yaml 头部标失效（指向 configs/）；`.bak` 18 文件 `git rm --cached`+gitignore（本地保留）；deploy.sh 补同步 `deploy/ configs/ world/` | 文档/清理 | `bash -n` 过；**注意**：.bak 退出跟踪会在统筹批准推送后从他人 checkout 消失（有意为之，历史仍在 git） |
+
+### 9.2 回归（2026-10-24，Mac 本地全部离线）
+
+- scripts/：`test_follow_dt` `test_passby_lock_confirm` `test_control_glue` `test_turn_pivot` `test_yaw_rate` `test_weak_cue` `test_leg_follow` `test_hri_bridge` `test_pick_safe_spot` → **9/9 PASS**
+- world/fusion/：`test_lidar_guard` `test_sector_score` `test_stamp_objects(新)` `test_geometry_map_wrap(新)` → **4/4 PASS**
+- 修改文件 `py_compile` 全过；`deploy.sh` `bash -n` 过。
+
+### 9.3 板端待办（我到不了板子，留给机主/安全员，按 §7.4）
+
+1. **smoke（改后必做一次，manual 模式）**：`curl -X POST /move {“direction”:”F”}` 应 OK；切 follow 后同请求应返回 `follow mode: 手动运动端点已锁`；`/healthz` 应出现 `uart` 字段。
+2. **拔插演练**：跟随中拔 C3→重插 → 观察 `/healthz` 的 `uart.fail` 持续增长 + `[UART] send FAIL` 日志（此前完全静默）；车应在 450ms 内自停（固件超时）。**死 fd 仍需重启 rk-control**——重连是 V2 项。
+3. **T0b `pivot -30`（转向符号，T4 前置）**：车必须向右转。若向左 → `HRI_BEARING_TO_YAW_SIGN` 与 `IMU_TO_THETA_SIGN` 至少一个错，**先停 T4**。
+4. **T4 重跑**：#2 改变错锁逃逸行为（此前恒不触发），按 §7.4 重跑 T4。
+5. **T9 前左右手镜像实测**（验 §1.3⑤）：人在车正前 1.5m，先向**左**横移出画 → 车若向**右**转 = 镜像坐实（polar_mapper/decoder 符号链反），记录后回填 `test_bearing_convention.py`。
+
+---
+
+## 10. 回执 B：passby 诊断表（§8.1-1/2，§8.3-a）
+
+> 信号源全部来自现有记录器（`passby_record.py` 10Hz JSONL）与 `follow_status.json`
+> （`state/cmd/val/offset/lost/owner/phase/turn_deg/smooth_h/obs_blocked/obs_cm`）——零新增仪器。
+> “一眼判”列 = 在 jsonl/日志里 grep 什么。
+
+### 10.1 失效模式 → 根因 → 信号 → 位置
+
+| # | 现象 | 主要根因（按概率排序） | 一眼判（信号） | 代码位置 |
+|---|---|---|---|---|
+| F1 | **转 30° 就停** | 近距门误触发：框高急停没被 `NEAR_GATE_OFFSET` 拦住（人在侧但 offset≤100px） | `follow_cmd==STOP` 且 `owner_ok==true` 且 `follow_state==FOLLOW` 且 `\|offset\|≤100` 且 `smooth_h≥400` | follow_controller.py:912,54 |
+| F2 | **停住不动（非近距）** | ①丢失流程停车 ②TURN 相预算尽 ③超声否决 ④uart 死 fd（车根本没收到） | ①`owner_ok=false≥2.4s`+`state∈wait/lost` ②`phase=TURN`+`turn_deg≥180` ③`obs_blocked=true` ④`/healthz.uart.fail` 增长（本批新增暴露） | :723-744; :141; _obs_blocked; rk_control.py:237 |
+| F3 | **反向转（背离人）** | 符号链三选一错：`IMU_TO_THETA_SIGN` / `HRI_BEARING_TO_YAW_SIGN` / 相机镜像（§1.3⑤） | `follow_cmd=MOVE L` 但 0.3s 后 `yaw` 增大**且** owner 最后在右侧（`owner_cx>320`） | :158 IMU_TO_THETA_SIGN; rk_control.py:447; polar_mapper.py:49 |
+| F4 | **贴人（净空<0.6m）** | 侧向无近距传感：框高在 2.2m 内饱和、地面测距 <1.58m 出画、速度门 30° 仍留 55% 速度 | 最接近帧：`persons` 有框 + `\|bearing\|>20°` + `y2>460`（脚将出画=已进 1.6m） | :57 速度门注释自认; range_from_box.py:58 |
+| F5 | **换主（锁路人）** | 换人确认门被”连续候选”绕过（tracker 预测恰好滑到路人）；或低分逃逸（本批 #2 修前永不触发） | jsonl 疑似换主段（owner_cx 跳变 >200px）+ `test_passby_lock_confirm` 离线复现 | :66-84 LOCK_CONFIRM*; 本批 c75093f |
+| F6 | **出画后回不来** | BLIND 盲转不足/过头（60° 上限是 10-16 仿真实测防甩尾）；SEARCH 方向反（F3 同源）；SEARCH 预算只靠 IMU 积分，IMU 失效时预算不减 | `phase=BLIND/SEARCH` 后 `owner_ok` 长期 false；`yaw_rate=null`（IMU 死）但 `follow_cmd` 仍在发 MOVE L/R | :100-104,141-146; _acc_turn_deg :570 |
+| F7 | **抖动/锯齿转** | 迟滞 30/15 边界震荡；REVERSAL_MAX 未熔断 | 5s 窗内 `MOVE L↔R` 交替 >3 次（REVERSAL 熔断前） | :92-93,106-107 |
+| F8 | **蛇形直行** | `W_DES_GAIN`/`YAW_K` 与重载不匹配；MIN_SPD=155 顶住内轮下限 | 直行段 `yaw_rate` 绕 0 振荡 >±8dps；面板 `/motion/config` 现场调阻尼 K | :33-38; runbook §0.5-⑦ |
+| F9 | **丢人后乱走** | SEARCH_BACK 后退 1.2s + 扫描转向，在人流里 = 无目标移动 | `state=LOST` + `follow_cmd=MOVE B` + `hri_state≠WAIT` | :64-66, SEARCH_BACK |
+| F10 | **腿-only 段丢跟** | <0.8m 只剩腿带弱线索，`WEAK_TTL_S=3s` 过期；LEG_FOLLOW 默认关（统筹裁定 A） | `persons` 框高度 <150px（MIN_BBOX_H）段丢失 | :120-133; owner_id.find_leg_band |
+| F11 | **顿挫（周期性停 0.45s）** | 检测 API 抖动 → follow tick 阻塞 >450ms → 固件超时自停再起步 | `det_age_ms` 尖峰 + `fps` 掉 + 随后 `follow_cmd` 从 STOP 恢复 | rk_control 10Hz tick 调 `_fetch_detections` timeout=1.0 |
+| F12 | **仿真数字不可信** | 墙钟/仿真钟混用 → passby 单跑 4.5× 抖动（README:72-75 已记录） | 只影响 Webots 分析，实机无此问题 | shadow_carrier.py:1281 vs :1232 |
+
+### 10.2 判据数字速查（T4 判定全表见 RUNBOOK §3）
+
+停 ≤1.0s ｜ bbox ≥90% ｜ 最长缺失 ≤0.5s ｜ 净空 ≥0.6m ｜ 0 换主 ｜ 丢人 ≤2.4s 进 wait_owner。
+危险帧定义（建议，供 §11-b 分析器落地）：`obs_cm≤35` 或 `obs_blocked=true` 或（`\|bearing\|>20°` 且 `y2>460`）。
+
+---
+
+## 11. 回执 C：补丁清单（**提案，未实施**——除标注外均需统筹批准）
+
+### 11-a 分析器增强（passby_analyze.py，纯增量，不动控制链）
+
+| 补丁 | 位置 | 改法 | 验收 | 风险 |
+|---|---|---|---|---|
+| 停住原因分类 | 新函数 `classify_stops(recs)` | 对每个 ≥0.3s 停止段，按 10.1-F2 的四分法打标（near/lost/turn/obs/uart）输出计数表 | 人造 jsonl（各造 1 段）分类正确 | 无（只读分析） |
+| 转向方向正确性 | 复用已有 `bearing_of(cx)` | 每次 `MOVE L/R` 起拍后 0.3s，`yaw` 变号 × 最后 owner 侧 → 朝人/背离 计数 | 与视频抽检 5 例一致 | 无 |
+| 危险帧标记 | 主循环 | 按 10.2 定义打 `danger` 标 + 段汇总 | T4 实测含 OBS 段能标出 | 无 |
+| 横向净空 proxy | `persons` 框宽×bearing | 只作”疑似 <0.6m”旗标，**不替代卷尺/视频**（标注为 proxy） | 与 3 次卷尺实测误差 <0.15m | 误报（宁可多报） |
+
+### 11-b host-side OBS 兜底（§8.3-f，对应 §1.2① 固件缺陷的宿主侧止血）
+
+**为什么不改固件**：烧录 C3 会让全部 T 系列结果作废重跑（§7.4 明令）；且 5s 强解/450ms 超时等语义改动需要单独的台架验证。host 侧一层 10Hz 拦截即可覆盖”DIFF 命令间隙继续前进”的主风险。
+
+**落点**：`rk_control.uart_send` 最前（在 `_safety_filter` 之前，超声与雷达两套包络各自独立）：
+
+```python
+def _obs_guard(cmd):
+    “””超声兜底(提案): OBS 新鲜且 blocked 或 cm<=35 时, 前进类命令即时改 STOP。
+    固件只拦 MOVE F 且只在下一条命令时拒 DIFF(§1.2①); 本层补 DIFF 间隙。”””
+    with obs_lock:
+        fresh = time.monotonic() - obs_state[“t”] < 1.0
+        blocked = bool(fresh and obs_state[“blocked”])
+        cm = obs_state[“cm”] if fresh else None
+    if not blocked and (cm is None or cm > 35):
+        return cmd
+    c = cmd.strip().upper()
+    if c.startswith(“MOVE F”):
+        return “STOP”
+    if c.startswith(“DIFF”):
+        try:   # 左右和>0 = 净前进
+            l = int(c.split()[1].lstrip(“L”)); r = int(c.split()[2].lstrip(“R”))
+            if l + r > 0: return “STOP”
+        except Exception: pass
+    return cmd          # STOP / MOVE B / MOVE L / R / PING 原样放行
+```
+
+**验收**：glue 测试 F 段（注入 `obs_state` 三态：fresh blocked / fresh cm=30 / stale → 只有前两者拦 `MOVE F 200` 与 `DIFF L200 R100`，`MOVE B`/`STOP` 永远放行）；板端重跑 **T4+T10**（§7.4）。
+**风险与已知边界**：①继承固件 fail-open（传感器断线 5 次后 OBS 恒 0 → 本层同样失效——治本在 demo 后固件批）；②路人腿在 20cm 处会触发 → 这正是想要的行为；③manual 模式同样生效（面板顶头也会被拦）——**设计如此**，若机主要求手动豁免需另加开关。
+**代价**：uart_send 热路径 +一次锁与字符串判断（<10µs），10Hz 无感。
+
+### 11-c 参数因果表（§8.3-c；**V1 一律只观测不改**，改=需统筹特批）
+
+| 参数（现值） | 改向 | 预期指标变化 | 风险 |
+|---|---|---|---|
+| `PIVOT_EXIT_DEG`(15) | ↓10 | 更早回弧线 → 命令停止段↓，但 30/15 迟滞带变窄 → F7 抖动↑ | 边界震荡 |
+| `NEAR_GATE_OFFSET`(100px≈11°) | ↑130 | F1 误停更少；但正前近距保护窗变窄 | 贴正前 |
+| `V_GATE_DROP`(0.45@30°) | ↑0.6 | F4 净空↑（30° 处速度 55%→40%）；T4 通过时长↑ | 跟不上人（F11 放大） |
+| `LOCK_CONFIRM_STRICT_N`(5) | ↑7 | 换主↓；重捕获延迟↑ → 最长缺失可能破 0.5s 判据 | 判据内耗 |
+| `WEAK_TTL_S`(3.0) | ↑4 | F10 腿段维持更久；弱线索误维持↑ | 错方向多转 |
+| `MIN_SPD`(155) | — | **勿动**（§7.3 V1 速度冻结）；蛇形先用面板阻尼 K（runbook §0.5-⑦） | — |
+| `TURN_ENABLED`(True) | False | 回退开关：出画时长↑↑、但 F1/F4/F7 全消失——**A/B 对照臂**（§12） | — |
+
+### 11-d 社会性约束落地（§8.1-5）
+
+文献口径（统筹给定）：Greenberg 2025 擦身曲率 k≈0.4、~6m 开始避让；Neggers 2022 净空 >90cm；IJHCI 2025 >120cm 且低于步速。**V1 无雷达无测距，只做可观测的三条**：
+1. **净空硬线 0.6m**（现行 T4 判据，介于”产品下限”与”文献 0.9m”之间——demo 场地 2.5m 走廊限制，文档如实写”受限场景”）；
+2. **贴身不原地转**：人不出画（<30°）绝不 pivot（`TTE_MAX_DEG=30`+`PIVOT_ENTER` 双门已保证），擦身中只减速让行（速度门）——这条已是代码行为，写进话术即可；
+3. **擦身段前向 ≤0.45m/s**（≈步速一半，IJHCI 口径）：V1 只在分析器里**报告**实测值（BASE_SPD×速度门反推），V2 用编码器闭环真正执行。
+V2 改法：雷达 6m 预避让 + 曲率平滑（W_DES 限速+斜率限制，逼近 k≈0.4）+ 编码器测速闭环。
+
+### 11-e 建议不做清单（§8.1-8）
+
+1. 不改 `BASE_SPD/NEAR_STOP_M/框高三阈值`（机主 10-19 裁定 + §7.3）；
+2. 不启用 leg-follow 做 passby 兜底（统筹裁定 A 默认关，安全门刚上 8/8 测试但无实车数据）；
+3. 不动 `LOCK_CONFIRM*` 门（passby 核心防线，改则 T 系列全重跑）；
+4. 不加 360° 扫描/持续旋转（§12.4 “不动比动更被信任”）；
+5. 不烧固件（§7.4）；不引入新仪器（§8.2）；
+6. 不拿 Webots passby 单跑数字当门禁（F12，4.5× 抖动，README 已载）。
+
+---
+
+## 12. 回执 D：T4 实验设计（§8.1-4/6）
+
+### 12.1 12 条排序（省时：先证符号、再探边界）
+
+| 序 | 条件 | 理由 | 最少样本 |
+|---|---|---|---|
+| 1-2 | 1.2m-正常-**右** / -**左** | 中等净空最宽容；一对即可验 F3 符号对称性（左右各一） | 各 2 |
+| 3-4 | 0.8m-慢-右 / 左 | 最难档（腿段+速度门）；F4/F10 集中暴露 | 各 2 |
+| 5-6 | 1.5m-慢-右 / 左 | 宽松上界（不出画的纯弧线段基线） | 各 1 |
+| 7-12 | 0.6 步速×(0.8/1.2/1.5)×左右 | 快步速补全（前 6 条全绿才跑） | 各 1 |
+
+**自动判定**：`passby_record`（全程）+ `passby_analyze`（锁定率/缺失/换主/停止段/朝向）；手填只剩**净空**（最接近帧视频+地面卷尺，一次一读）。
+**前置不满足即中止**：T0b `pivot -30` 向右（9.3-③）；health_check FAIL=0；`mode=follow` 认主成功。
+**中止线**（RUNBOOK §3 已有）：反向转 / 贴人 <0.6m / 换主 → 立即 `/stop` + 抓 journalctl。
+
+### 12.2 A/B（现有记录器，不加仪器；两臂同日同场地同人）
+
+| 对照 | 臂 | n | 主指标 | 假设 |
+|---|---|---|---|---|
+| A/B-1 | `TURN_ENABLED` True vs False | 3+3（1.2m-正常-右） | 最长缺失 / 出画时长 / 最长停顿 | ON 显著缩短缺失，停顿持平或略增 |
+| A/B-2 | 近距门观察 | 复用 A/B-1 数据 | F1 发生率 vs `\|offset\|` 分布 | F1 只在 offset≤100 且 smooth_h≥400 出现（验证门正确性，不改参数） |
+
+A/B-1 的 OFF 臂即回退开关演练（RUNBOOK §4），一举两得。**V_GATE_DROP/leg-follow 的 A/B 需统筹特批后再排**（§11-c/11-e）。
+
+### 12.3 文档回写点（§8.3-g，待统筹批后我来做）
+
+`T0B_T4_RUNBOOK.md` §3 补”停止原因分类/危险帧”两个判定口径；`FIELD_TEST_PLAN.md` §3 T4 表加 danger 列；本文件 §10.2 的危险帧定义作为两处引用源。
+
+---
+
+*回执人：审查线（ZCode 会话）。所有改动未推送；板端 smoke 与 T4 由机主执行。*
