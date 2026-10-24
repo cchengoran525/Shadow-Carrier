@@ -129,6 +129,23 @@ def cell_center_polar(sector, ring):
     return b, d
 
 
+def stamp_objects(grid, objs, door_objs):
+    """物体/门落格(标签覆盖自由空间)。抽出成纯函数便于回归测试。
+
+    2026-10-24 修(审查§1.3①/白名单#4): polar_to_sector 对 dist>3.0m 返回 ring=3
+    (==len(RINGS_M), "超远"), 而 grid 只有 3 行 —— 旧代码 grid[3] 直接 IndexError,
+    once/scan 模式整次快照失败、loop 模式每轮 cycle error, HIDE 断粮。
+    超远目标本就无格可落 → 跳过(不落格=不挤占近场证据)。
+    """
+    for o in list(objs) + list(door_objs):
+        r, s = o["ring"], o["sector"]
+        if not (0 <= r < len(grid) and 0 <= s < len(grid[r])):
+            continue
+        grid[r][s] = {
+            "label": "obj:%s" % o["cls"], "sources": ["yolo" if o["cls"] != "door" else "hough"],
+            "bearing": o["bearing_deg"], "dist_m": o["dist_m"]}
+
+
 class WorldSnapshot:
     def __init__(self, h_func, tilt_func):
         self.h_func, self.tilt_func = h_func, tilt_func
@@ -239,11 +256,8 @@ class WorldSnapshot:
                             "density": round(dens, 4)})
             grid.append(row)
 
-        # 格子标签被物体覆盖(物体比自由空间可信)
-        for o in objs + door_objs:
-            grid[o["ring"]][o["sector"]] = {
-                "label": "obj:%s" % o["cls"], "sources": ["yolo" if o["cls"] != "door" else "hough"],
-                "bearing": o["bearing_deg"], "dist_m": o["dist_m"]}
+        # 格子标签被物体覆盖(物体比自由空间可信; 超远 ring=3 跳过见 stamp_objects 注释)
+        stamp_objects(grid, objs, door_objs)
 
         free_dirs = [s2 * 45 for s2 in range(8)
                      if grid[0][s2]["label"] == "free"]
