@@ -125,4 +125,15 @@ if gdm is not None:
 else:
     print("  (跳过: range_from_box 不可导入)")
 
+print("\n== E. uart_send 失败计数与 /healthz 暴露 (2026-10-24 白名单#3) ==")
+_f0 = rk.uart_stats["fail"]
+assert rk.uart_send("PING") is False, "uart_fd=None(未打开)时发送应失败"
+assert rk.uart_stats["fail"] == _f0 + 1, "失败必须计数(不再静默)"
+assert rk.uart_stats["last_cmd"] == "PING"
+_h = rk._healthz()   # Mac 上各探测项均带 try/except, 安全
+assert isinstance(_h.get("uart"), dict) and _h["uart"]["fail"] >= 1, \
+    "/healthz 必须暴露 uart.fail"
+print(f"  fail×{rk.uart_stats['fail']} last_cmd={rk.uart_stats['last_cmd']!r}"
+      f" · /healthz.uart.fail={_h['uart']['fail']}")
+
 print("\n全部断言通过")

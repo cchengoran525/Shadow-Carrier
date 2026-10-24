@@ -234,13 +234,29 @@ def uart_open(port):
         print(f"[UART] {e}")
         return False
 
+uart_stats = {"fail": 0, "last_fail_ts": None, "last_cmd": None, "last_err": None}
+_uart_warn_t = [0.0]   # 告警节流锚点(5s 一条, 避免刷屏)
+
 def uart_send(cmd):
     cmd = _safety_filter(cmd)
     if cmd is None:
         return False
     with uart_lock:
         try: os.write(uart_fd, f"{cmd}\r\n".encode()); return True
-        except: return False
+        except Exception as e:
+            # 2026-10-24(白名单#3): 此前裸吞异常 → C3 重枚举后本进程持死fd,
+            # 所有运动命令静默失败(/ping 仍报正常), 只能人工重启。
+            # 现计数入 /healthz 并节流告警; 进程内自动重连留 V2(需配udev事件测试)。
+            uart_stats["fail"] += 1
+            uart_stats["last_fail_ts"] = time.time()
+            uart_stats["last_cmd"] = cmd
+            uart_stats["last_err"] = repr(e)[:120]
+            _now = time.monotonic()
+            if _now - _uart_warn_t[0] >= 5.0:
+                _uart_warn_t[0] = _now
+                print(f"[UART] send FAIL ×{uart_stats['fail']} last={cmd!r} err={e!r}",
+                      flush=True)
+            return False
 
 # ====== 激光雷达避障过滤 (V2, 2026-10-16) ======
 # 设计见 docs/V2_LIDAR_AVOIDANCE.md。要点:
@@ -1240,7 +1256,8 @@ def _motion_load():
 
 
 def _healthz():
-    out = {"mode": _get_mode()}
+    out = {"mode": _get_mode(),
+           "uart": dict(uart_stats)}   # 白名单#3: 串口失败计数(fail>0 且持续增长 → 死fd, 重启rk-control)
     try:
         d = json.loads(urllib.request.urlopen(
             "http://127.0.0.1:8080/api/detections", timeout=1.0).read())
