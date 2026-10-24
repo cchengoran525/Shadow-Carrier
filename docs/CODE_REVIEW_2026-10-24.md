@@ -294,3 +294,96 @@
 ---
 
 *审查覆盖：全部 docs/*.md、README×4、shadow_carrier_on_rockchip 的 scripts/state/world/gimbal/decision/perception/communication/deploy/config/configs、simulation/webots 全目录、DistributedRobot_C3_MotionController、DistributedRobot_S3_Gateway、wifi/C3_WiFi_Controller、C3_USB_Controller、tools。审查只读，未修改任何文件（本报告除外）。*
+
+---
+
+## 7. 统筹复核与白名单（2026-10-24，致审查者）
+
+> 你不在 EXCHANGE 名单下：**后续回执直接追加在本文件**（§7/§8 之后），不用进 EXCHANGE。
+> 本节是统筹对你这份报告的裁决；§8 是给你的下一项任务（passby）。
+
+### 7.1 复核结论
+
+- **报告可信**：抽查 6 条关键证据全部成立——`_low_s` 从不累加、`/move` 无 mode 门禁、
+  `uart_open` 只在启动调用一次、`grid` 只建 3 行而 `ring=3` 越界、`profile=None` 异常后永久丢模板、
+  两条误报（PAN/TLT、OBS）确实不成立。
+- **“18 条 P0/P1”里真正影响 demo 的约 4–5 条**；其余属 V2/雷达/固件/文档，按 §7.2/§7.3 分级。
+- **§6 的“已修/未修”对照准确**；`hri_state` 出画断流、HRI 动作层、帧原子写确已修。
+
+### 7.2 允许你自行展开的白名单（demo 前，小改 + 测试）
+
+| # | 项 | 验收 |
+|---|---|---|
+| 1 | `/move` 加跟随模式门禁 | 跟随中 POST `/move` 被拒绝；T0/T8 仍可用（先 manual） |
+| 2 | `_low_s` 按 dt 真正累加 | 低分持续 ≥3.2s 清跟踪器；`test_follow_dt` + `test_passby_lock_confirm` 绿 |
+| 3 | `uart_send` 失败计数 + 告警 | `/healthz` 暴露 fail 计数；不再静默；重连可选但必须有测试 |
+| 4 | `geometry_daemon` `ring>=3` 跳过 | >3m 目标不再 IndexError；加一条单测 |
+| 5 | `geometry_map` EWMA 跨 ±180 wrap | 172°/-172° 平均为 180°（不是 34°）；加一条单测 |
+| 6 | 文档/清理 | `GAZE_ENABLED` 表、`settings.yaml`、`.bak`、`deploy.sh` 同步范围 |
+
+**约束（硬）**
+- 每条**独立 commit**；不并发改 `rk_control.py` / `follow_controller.py`（T4 正在用）；
+- **不推 GitHub**（等统筹）；**不烧 C3 固件**；**不改 V1 速度/转向增益**；
+- 改完跟一条：回归 + 板端 smoke + 本文件回执（改了什么/证据/未过项）。
+
+### 7.3 暂不允许（demo 后）
+
+- **固件改动**：DIFF 超声即时停车、超声 fail-open、舵机固件层限位、TWDT/非阻塞打印 →
+  要烧 C3，**demo 前不动**；先做 host-side 兜底（见 §8.3-f）。
+- 雷达/V2 几何（rot 迟滞、时钟域、配置键）、仿真重构、三对重复文件大改。
+- 任何会让当前 T 系列结果失效的改动（若必须改，等 T4 跑完再动）。
+
+### 7.4 对当前测试的影响
+
+- 本报告是**只读**的 → 目前零影响。
+- 白名单中 **#2 `_low_s`** 会改“错锁逃逸”行为 → 改后**重跑 T4**；
+  **host-side OBS STOP** 会改跟随停车 → 改后**重跑 T4/T10**。
+- **T4 前必做**（不受修复影响）：① T0b `-30°` 确认转向符号（`TURN_ENABLED=True` 后 §1.5 现役）；
+  ② C3 拔插演练（验 §1.1① 死 fd）；③ T9 前左右手镜像实测（验 §1.3⑤）。
+- **固件不要在 T4 期间烧**——烧了所有 T 系列结果都要重跑。
+
+---
+
+## 8. 请继续思考 passby（统筹派工）
+
+> 目标：**先不改代码**，产出一份“passby 诊断表 + 补丁清单 + 实验设计”；每条给证据与验收。
+> 可直接在本文件追加回执（§9 起），不用进 EXCHANGE。
+
+### 8.1 要回答的问题
+
+1. **失效模式清单**：把 passby 可能出的问题列全——停住、反向转、贴人、换主、出画、
+   抖动/锯齿、蛇形、近距 off-axis、腿-only、镜像、延迟、丢人后乱走。
+2. **根因 + 可观测信号**：每个模式对应哪个变量/日志/代码位置，怎么一眼判出来。
+3. **demo 期可改 vs V2**：哪些是参数/门控/日志/分析器能解决的，哪些必须固件/雷达/重规划。
+4. **T4 12 条怎么跑最省**：优先级、每条最小样本、如何用现有 `/test` + `passby_record/analyze` 自动判定。
+5. **社会性约束**：结合 Greenberg 2025（擦身曲率 k≈0.4、6m 开始避让）、Neggers 2022（>90cm、速度）、
+   IJHCI 2025（>120cm + 低于步速）——给 V1 可执行的限速/转向平滑/不要贴身旁原地转的约束，以及 V2 改法。
+6. **A/B 实验**：`TURN_ENABLED` 开/关、近距门、速度档、腿跟开/关——用现有记录器做对照，别新增仪器。
+7. **安全兜底**：DIFF 无即时超声停车 → 建议 host-side STOP 条件；分析器如何标记“危险帧”。
+8. **输出格式**：先给表，再给补丁清单（file:line + 改法 + 风险 + 验收），最后给“建议不要做”的清单。
+
+### 8.2 现有资产（直接用，别重造）
+
+- 代码：`follow_controller.py`（转向通道 / 近距门 / 速度门 / 地面测距）、`rk_control.py`
+  （动作桥、`/test`、`/motion/config`）、`passby_record.py` / `passby_analyze.py`、`hri_state.py`。
+- 状态：`/dev/shm/follow_status.json`（`cmd/val/offset/lost/yaw_rate/w_des`）、`owner.json`、
+  `hri_state.json`、C3 `OBS blocked/cm`。
+- 文档：`docs/FIELD_TEST_PLAN.md` §3 T4、`docs/T0B_T4_RUNBOOK.md`、`docs/FIELD_TRIAL_PLAYBOOK.md` §6.1。
+
+### 8.3 你能帮上忙的具体点（按价值排序）
+
+- **(a) 失效模式 → 信号映射表**：把“看到什么现象”直接映射到“查哪个文件/字段/代码行”。
+- **(b) 分析器增强**：停住**原因分类**（STOP 来自近距门/丢失/转向/人工？）、**转向方向正确性**、
+  **横向净空 proxy**（用 bbox/地面几何/视频标注）、**危险帧标记**（人车 <0.6m 或 OBS <35cm）。
+- **(c) 参数/门控建议**：`PIVOT_EXIT_DEG`、`NEAR_GATE_OFFSET`、速度门、`TURN_ENABLED` 开/关的边界；
+  给“改一个值 → 预期哪个指标变”的因果表。
+- **(d) 社会性**：把上面三篇的结论落成 V1 可执行的 3–5 条（限速、转向平滑、禁止贴身旁原地转等）。
+- **(e) A/B 设计**：用现有 10Hz 记录，给出最小可判定的对照（别引入新硬件）。
+- **(f) 安全**：host-side `OBS blocked/cm≤35 → STOP`（无论 DIFF/MOVE）的建议实现与回归；
+  以及“固件批”留到 demo 后的理由/验收。
+- **(g) 文档**：把 T4 判据、危险帧定义、失败归因写回 `T0B_T4_RUNBOOK` / `FIELD_TEST_PLAN`。
+
+### 8.4 边界
+
+- **不改固件/雷达/大重构**；**不改 V1 速度**；**不并发改 `rk_control`/`follow_controller`**（T4 期间）；
+- **不推 GitHub**；回执写本文件 §9 起；每条建议必须带“证据 + 验收 + 风险”。
