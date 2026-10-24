@@ -540,7 +540,17 @@ class Guard:
         # ---- 健康 ----
         # 三种非 ok: stale(帧过期) / suspect(有效点过少: 探头被挡、起雾、镜头脏)。
         # suspect 是重要的"安静失效"——SDK 还在按点出版本刷时间戳, 但反正什么也没看见。
-        scan_age = (now - ts) if (ts is not None and now >= ts) else None
+        # ts 双时钟兼容: now 是 time.monotonic(); 生产者可写 monotonic(约定)
+        # 或 epoch(time.time(), 旧文档示例值)。epoch > monotonic 恒成立,
+        # 若只按 now-ts 判, epoch 帧的 scan_age 恒为 None → stale 检测静默失效
+        # (2026-10-24 实测踩中, 见 V2_LIDAR_AVOIDANCE.md 附 D)。
+        if ts is None:
+            scan_age = None
+        elif ts <= now:
+            scan_age = now - ts
+        else:
+            wall = time.time()
+            scan_age = (wall - ts) if ts <= wall else None  # 超前墙钟的坏时间戳不判 stale
         stale = scan_age is not None and scan_age > cfg["stale_timeout_s"]
         suspect = len(pts) < cfg["min_points_ok"]
         ok = not stale and not suspect
