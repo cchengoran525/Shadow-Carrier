@@ -201,7 +201,8 @@ class FollowController:
         self.bearing_of_fn = bearing_of_fn
         self._last_t = None      # EMA/计时共用: 实测dt
         self._lost_s = 0.0       # 连续丢失秒数
-        self._low_s = 0.0        # 连续低分秒数
+        self._low_s = 0.0        # 连续低分秒数(2026-10-24修: 此前从未累加, 逃逸判据恒False)
+        self._low_last_t = None  # 低分计时锚点(上一次"无匹配"帧的墙钟)
         self._conf_center = None # 换人确认门: 候选中心
         self._conf_n = 0         # 换人确认门: 连续帧计数
         self._ever_locked = False  # 是否完成过首次锁定(首次不延迟)
@@ -361,12 +362,20 @@ class FollowController:
                 if box is None:
                     self._conf_center = None; self._conf_n = 0   # 无候选 → 确认链断开
                     self.low_streak += 1
+                    # 连续无匹配按真实帧间隔累加(2026-10-24修, 白名单#2):
+                    # 旧代码 _low_s 只初始化/清零、从不累加 → LOW_STREAK_S 逃逸永不触发,
+                    # 锁错人后只要模板一直失配就无限跟丢。现: 持续失配 ≥3.2s 清跟踪器重捕。
+                    _t_now = time.monotonic()
+                    if self._low_last_t is not None:
+                        self._low_s += _t_now - self._low_last_t
+                    self._low_last_t = _t_now
                     if self.tracker is not None:
                         self.tracker.coast()
                         if self.low_streak >= 1 and self._low_s >= LOW_STREAK_S:
                             self.tracker.reset()
                             self.low_streak = 0
                             self._low_s = 0.0
+                            self._low_last_t = None
                             print("[follow] re-acquire: tracker reset")
                     # 机主原则(2026-08-28 定稿): 模板失配 = 画面里没有可信的主人
                     # → 返回None走丢失流程(wait_owner/lost_stop), 绝不转投路人
@@ -382,6 +391,8 @@ class FollowController:
                 if self.tracker is None:
                     self.tracker = owner_id.TargetTracker()
                 self.tracker.update(cx, cy)
+                self._low_s = 0.0        # 命中可信主人 → 低分计时清零
+                self._low_last_t = None
                 # 注(2026-10-16): 原此处有一段 `score < SCORE_MIN-0.05` 的低分streak分支,
                 # 恒不可达(select_target 已保证 score>=SCORE_MIN), 且其内 `_dt` 是未定义名
                 # (阈值一改就 NameError) → 直接删除, 保留下面的正常返回。
