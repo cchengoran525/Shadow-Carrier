@@ -28,6 +28,16 @@ def _sector(bearing):
     return int(((bearing + SECTOR_DEG / 2) % 360) // SECTOR_DEG) % 8
 
 
+def _ewma_bearing(old, new):
+    """跨±180缝的方位角EWMA(2026-10-24修, 审查§1.3④/白名单#5)。
+
+    旧代码线性平均 (1-EWMA)*old + EWMA*new: 172°与-172°是同一物理方向(正后方),
+    平均结果却是 34.4°(右前方) —— 门/物体会瞬移到反方向, 直接污染 sector_score
+    选点与 hri_state。现按最短角差更新; 非跨缝输入与旧公式逐值一致。"""
+    d = ((new - old + 180.0) % 360.0) - 180.0     # 最短角差, ∈(-180,180]
+    return round(((old + EWMA * d) + 180.0) % 360.0 - 180.0, 1)
+
+
 class RollingMap:
     def __init__(self, data=None):
         d = data or {}
@@ -87,7 +97,7 @@ class RollingMap:
                     hit = e
                     break
             if hit:
-                hit["bearing_deg"] = round((1 - EWMA) * hit["bearing_deg"] + EWMA * b, 1)
+                hit["bearing_deg"] = _ewma_bearing(hit["bearing_deg"], b)
                 if dist is not None and hit.get("dist_m") is not None:
                     hit["dist_m"] = round((1 - EWMA) * hit["dist_m"] + EWMA * dist, 2)
                 elif dist is not None:
@@ -112,7 +122,7 @@ class RollingMap:
                     hit = e
                     break
             if hit:
-                hit["bearing_deg"] = round((1 - EWMA) * hit["bearing_deg"] + EWMA * o["bearing_deg"], 1)
+                hit["bearing_deg"] = _ewma_bearing(hit["bearing_deg"], o["bearing_deg"])
                 if o.get("dist_m") is not None:
                     hit["dist_m"] = o["dist_m"]
                 hit["last_seen"] = now
