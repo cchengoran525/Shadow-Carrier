@@ -1,0 +1,71 @@
+slam_toolbox:
+  ros__parameters:
+
+    # ===== X3Pro 定制（对照默认 mapper_params_online_async.yaml 逐项注明）=====
+    # 选型/参数依据见 docs/PC_SLAM_TRACK.md §4（实测数据→参数映射）
+    solver_plugin: solver_plugins::CeresSolver
+    ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
+    ceres_preconditioner: SCHUR_JACOBI
+    ceres_trust_strategy: LEVENBERG_MARQUARDT
+    ceres_dogleg_type: TRADITIONAL_DOGLEG
+    ceres_loss_function: None
+
+    # ROS Parameters
+    odom_frame: odom
+    map_frame: map
+    base_frame: base_link        # x3pro 驱动已发布 base_link→laser 静态 TF（实测确认）
+    scan_topic: /scan
+    use_map_saver: false         # nav2_map_server 未装；用 pc_track/slam/save_map.py（零依赖）
+    mode: mapping
+
+    debug_logging: false
+    throttle_scans: 1            # 10Hz 全量进（慢速手持不需要抽稀）
+    transform_publish_period: 0.02
+    map_update_interval: 2.0     # 默认 5.0；调短让 rviz 建图过程更直观（科研轨用途）
+    resolution: 0.05             # 5cm 栅格。注意：X3Pro 1.66°/点在 3m 处弧长间隔 ≈8.7cm，
+                                 # 远墙只有稀疏命中——0.05 已是下限附近，再细没有信息量支撑
+    min_laser_range: 0.15        # X3Pro range_min≈0.1；近场自反射已在驱动/guard 层滤
+    max_laser_range: 8.0         # 标称 8m（室内实测 max 4.61m，深色表面更短）
+    minimum_time_interval: 0.1   # 每帧都处理(12Hz), 帧间位移最小化   # 默认 0.5；手持慢走希望节点密一点
+    transform_timeout: 0.2
+    tf_buffer_duration: 30.0
+    stack_size_to_use: 40000000
+    enable_interactive_mode: true  # rviz 交互回环标记：手持建图人工补一个回环很有用
+
+    # General Parameters
+    use_scan_matching: true
+    use_scan_barycenter: true
+    minimum_travel_distance: 0.15  # 默认 0.5：为车载设计；手持慢走调小，避免节点过疏
+    minimum_travel_heading: 0.2    # 默认 0.5 rad 太粗；手持转身也要出节点
+    check_min_dist_and_heading_precisely: false
+    scan_buffer_size: 10
+    scan_buffer_maximum_scan_distance: 8.0
+    link_match_minimum_response_fine: 0.1
+    link_scan_maximum_distance: 1.5
+    loop_search_maximum_distance: 3.0
+    do_loop_closing: true
+    loop_match_minimum_chain_size: 10
+    loop_match_maximum_variance_coarse: 3.0
+    loop_match_minimum_response_coarse: 0.35
+    loop_match_minimum_response_fine: 0.45
+
+    correlation_search_space_dimension: 1.0
+    correlation_search_space_resolution: 0.01
+    correlation_search_space_smear_deviation: 0.1
+
+    loop_search_space_dimension: 8.0
+    loop_search_space_resolution: 0.05
+    loop_search_space_smear_deviation: 0.03
+
+    # Scan Matcher Parameters —— 无里程计手持模式下 scan matching 是唯一位姿源：
+    # 惩罚略调宽（宽容差的真实位姿漂移），配合慢走纪律（≤0.3 m/s、少急转）
+    distance_variance_penalty: 0.3   # 默认 0.5
+    angle_variance_penalty: 0.9      # 默认 1.0
+    fine_search_angle_offset: 0.00349
+    coarse_search_angle_offset: 0.6
+    coarse_angle_resolution: 0.0349
+    minimum_angle_penalty: 0.9
+    minimum_distance_penalty: 0.5
+    use_response_expansion: true
+    min_pass_through: 2
+    occupancy_threshold: 0.1
