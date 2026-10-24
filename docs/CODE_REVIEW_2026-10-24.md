@@ -616,3 +616,51 @@ A/B-1 的 OFF 臂即回退开关演练（RUNBOOK §4），一举两得。**V_GAT
 5. N5：三处服务清单统一为 health_check 的口径（6 服务+timer），板上 README 加 imu/c3-watchdog/hri-state 三行。
 6. N7：playbook:52 改"临时改 BASE_SPD **需统筹批准**（V1 速度冻结，DEFERRED_WORK §3）"。
 7. 其余旧账（#1/2/3/4/5/6/8/9/14/15）属 V2 规划拍板项，建议 demo 后按 §3.3 清单一次拍完再回改。
+
+---
+
+## 14. 回执 F：补审（2026-10-24 晚，视觉服务本体 / 部署面 / 测试台面板）
+
+> 覆盖此前从未审过的三块：`perception/`（yolo_daemon 真身）、`deploy/`+`configs/` 部署面、
+> `/test` 面板防误触。另补 /move 门禁 handler 级测试（`755dd51`）。**全部只读审查**，
+> 发现项未改代码（除新测试文件）。
+
+### 14.1 视觉服务本体（perception/）
+
+- **yolov8.cpp / camera.cpp 是 TODO 占位桩**（load_model 恒 false、infer 恒空）——README 已声明"native 封装是占位"，与事实一致；真身是 `yolo_daemon.cc` 直接调外部 rknn_model_zoo。死代码，无风险。
+- **yolo_daemon.cc 本体（140 行）质量好**：v3 stdout/stderr 隔离、v4 out.jpg 原子写、A3.5 ts/t_mono 双时钟都有。发现三点：
+  1. **模型与外部构建产物都在仓库外**（v7:34-35 硬编码 `/home/kickpi/shopping_car_vision/.../yolov8.rknn` 与 daemon 二进制路径），且 **deploy.sh 不同步 perception/**——改仓库里的 yolo_daemon.cc 源码不会到达板上，板上跑的二进制与仓库源码的对应关系无 md5 记录。复现性缺口（README 承认，但"源码≠板上二进制"这一条比 README 说的更具体）。
+  2. **检测置信度/NMS 阈值不在仓库**：daemon 未暴露阈值参数，阈值在外部 rknn_model_zoo 的 postprocess 里编译期定死（yolov8.cpp 注释提到 0.25/0.45 是桩里的默认值）。T 系列任何涉及"检出率"的结论都无法从仓库复现。
+  3. **stderr 是 JSON 协议+日志的混合通道**（`[stage]` 行、`[watchdog]` 行、`{"error":...}` 都走 stderr）：v7 按行过滤 JSON 没问题，但任何第三方往 stderr 打印以 `{` 开头的行都会注入假检测——现状无此打印，仅记录该契约脆弱点。
+- **崩溃恢复在宿主侧闭环**（v7:132-172 watchdog：进程退出→restart + 心跳超时→restart，restarts 计数进 /api/detections 并在 /test 健康页可见）✓；`video-stream.service` Restart=always/5s 兜底 v7 本身 ✓。
+
+### 14.2 部署面（deploy/ + configs/）
+
+- **hri-state.service**：`--owner-source file`（消费 owner.json，与仿真同配置）✓、After/Wants=video-stream ✓、Restart=always/2s ✓。小瑕疵：stdout 落 `/tmp/hri_state.log`（重启即丢，与黑匣子 jsonl 的 ~/hri_logs 双标准，排障时容易找错地方）。
+- **geometry-parked.timer（20s，只在 WAIT/HIDE 停驻域跑 `geometry_daemon.py once`）**：
+  1. 设计合理（停驻才刷 grid、避免抢云台），退出码恒 0（失败只在 journal）。
+  2. **该定时器正是本批 ring=3 修复（2f921c7）救活的路径**：停驻刷新时画面里 3m 外的行人/物体此前会让 `once` 整次 IndexError——修复的实战价值由此坐实。
+  3. `once` 每次会把云台摆到工作角（pan=90/tilt=112）：GAZE 关停后无竞争方，暂无冲突；若 V2 重开 gaze 需回头审这个交互。
+- **dnsmasq.conf**：99.7% CPU 自环修复有完整根因记录 ✓；DHCP 段 192.168.4.2-50 与面板 IP 4.1 一致 ✓。
+- **网络双上下文混用**：deploy.sh 默认 `kickpi@192.168.137.190`（笔记本 ICS 网段，开发用）、旧 video_stream.py 硬编码 137.190、demo 网是板子自发热点 4.1——三处口径并存，文档没写"开发网 vs demo 网"的切换说明。换环境排障容易连错网。
+- **camera-usb-fix**（2s 轮询写回 power/control=on）与 udev 规则、v7 camera_watchdog 三层互补，注释清楚 ✓。
+- 仍缺：**rk-control.service 单元与 C3 的 udev 规则（303a:1001）不在仓库**（§2.2 老问题，换板不可复现、且无规则的板上 watchdog 会循环 usbreset）。
+
+### 14.3 /test 面板防误触（test_panel.html，455 行）
+
+- **已有的防护**（比我担心的好）：T0/T8 动车前有 `confirm("车会短暂动作，确认四周 ≥1m 且无人？")` ✓；腿跟开启有 confirm ✓；急停按钮顺带切回 manual ✓；T0/T8 旧版服务端还有 dry-run 回退路径（2bc0b1f）。
+- **发现四点**：
+  1. **[P1] "标准档"预设是 10-21 重载档之前的全套旧值**（test_panel.html:428-430：BASE 220/MIN 120/PIVOT 190/W_DES_GAIN 0.08/BACK 85/SEARCH_BACK 70/HRI 80-110）。排障时点"标准档"想恢复默认 → 实际把重载车的力矩降回带不动的档位、转向增益砍半（0.18→0.08）。**"标准档"现值应以代码为准更新或直接删掉只留重载档+自定义**。
+  2. **[P1] 重载档预设 YAW_K=2.0 与代码现值 1.0 相反**（:425 vs follow_controller.py:33"2.0→1.0 降增益防振荡"+runbook"阻尼 K=1.0 默认"）——点"重载档"会把已弃用的振荡增益写回去。重载档其余 11 项与代码一致，唯此一项错。
+  3. [P2] `setTurn(1)`（TURN_ENABLED 运行时开关）无 confirm——与腿跟的防护不对称；误触关闭会让 T4 在"无转向通道"臂上跑（实验臂被悄悄换掉，A/B 数据作废）。建议与腿跟同级 confirm。
+  4. [P2] `pivot(90/180/-30)` 按钮无 confirm（服务端有 manual+IMU 双门，跟随态点了会被拒，manual 下一击即转 180°）。
+- 修 1/2 只动 test_panel.html 的两个常量字典（不动 rk_control/follow_controller，不在 T4 冻结名单内），**待统筹批后两分钟可改**。
+
+### 14.4 本轮补的测试
+
+- `test_move_gate.py`（`755dd51`）：起真实 HTTPServer 打桩 uart_send——follow 拒（零串口副作用）/manual 放行（MOVE F 150）/模式相关（再切回 follow 仍拒）/400 路径不吞。白名单#1 的"必须有测试"欠账已清；离线回归现为 **14/14**。
+
+### 14.5 杂项
+
+- `.git/objects` 4 个 `tmp_obj_*` 残片（前几日被杀的 fetch 遗留）已清，`count-objects` 无 warning；仓库 1.75MiB 无体积问题。
+- EXCHANGE.md 不在本 checkout——§13 的文档裁决无法对照动态权威源，建议机主把它带进此工作区或在 EXCHANGE 里登记本报告已读（§7 约定"不入 EXCHANGE"，矛盾点：裁决让回执写本文件，但 EXCHANGE 作为动态权威源看不到这些回执）。
