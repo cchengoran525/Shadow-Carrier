@@ -347,3 +347,50 @@
 ---
 
 *审查覆盖：scripts 全部（rk_control/follow_controller/owner_id/hri_state/imu_daemon/video_stream×3/gimbal/passby×2/pivot_calib/test×13/deploy.sh/health_check.sh）、world/fusion 全部（含新增 ros_scan_bridge.py）+ world/ 顶层、state/ 全部 + calib、simulation/webots（shadow_carrier.py 1375 行 + analyze_robustness + run_*.sh）、perception、四套 Arduino 工程（diff 验证）、pc_track、deploy、tools、.gitignore/.zcodeignore。全程只读，除本报告外未创建/修改任何文件。本 commit 不推送 GitHub。*
+
+---
+
+## 9. 统筹审查意见（2026-10-25，是否继续执行）
+
+### 9.1 质量判断
+
+**高质量，可以继续，但要缩范围。**
+- 6 模块分片 + 主审复核；17 条高价值声明 **16 证实、1 证伪**，且主动写了证伪记录；
+- file:line、机制、收益、时机齐全；与 `CODE_REVIEW_2026-10-24.md` 分工清楚（正确性 vs 优化），不重复展开；
+- 尊重 demo 冻结：固件全部押后，多条性能项明确写“demo后”。
+
+我抽验的 5 条**全部成立**：
+- `SIM_TURN=0` 确实关不掉（`shadow_carrier.py:69-70` 只设 True，从不设 False）→ A/B off 臂是假对照；
+- `BACK_SPD` 确实零引用却进了 `_FC_KEYS`（假调参键）；
+- `imu_daemon` 重零 0.8s 后仍用旧 `dt` 积分；
+- `/turn` 的 `active` 检查无锁（TOCTOU）；
+- 10Hz 主循环确实是 `tick + sleep(0.1)` 累加。
+
+**主要问题不是“错”，是“demo 前范围过宽”**：
+8 条 demo 前提案里，多条是热路径微优化（shm 缓存、截止期调度、gimbal 降频），收益小、却要动
+`rk_control`/`follow_controller`；而当前瓶颈是 NPU（11FPS），不是 syscall。T4 期间改控制热路径，风险不对等。
+
+### 9.2 继续执行：批准一个小批（正确性 + 零风险），性能重构押后
+
+**批准（demo 窗口，逐条独立 commit + 回归）**
+1. **§7.1-① `SIM_TURN=0` 一行修**——A/B off 臂失效，任何人重跑都中招，**最高优先**；
+2. **§7.1-⑤ `/turn` TOCTOU**——检查与置位同入 `turn_lock`；
+3. **§7.1-③ imu 重零 `dt` 缺口**——cal 结束重采 `t_prev` 或弃一拍；
+4. **§7.1-④ NaN `isfinite`**——sim/host 先修；固件部分押后；
+5. **零风险清理**：§1-#2 `BACK_SPD` 假键、#5 `uart_reader` 双等待、#8 旧 `video_stream` 弃用横幅。
+
+**押后（demo 后 / V2）**
+- §1-#1 shm 缓存、#3 截止期调度、#4 gimbal 降频、#6 仿真缓存、#7 geometry 发布块：
+  热路径/性能，当前不是瓶颈；T4 期间不动；
+- §2 其余热路径、§3 算法、§4 重复收敛、§5 删除类、§6 部署/卫生、固件、雷达/PC 轨。
+
+**条件**：每条独立 commit；**T4 期间不并发改 `rk_control`/`follow_controller`**；改后跑回归 + 板端 smoke；
+**不推 GitHub**（等统筹）；不改 V1 速度/转向增益。
+
+### 9.3 对当前测试的影响
+
+- `SIM_TURN` 仅仿真，不影响实机 T4；
+- `/turn` 锁影响手动转 → 改后重跑 **T0b**；
+- imu 修影响启动航向 → 改后重跑 **T2** 开头；
+- NaN 修 sim/host；
+- 本批**不碰** T4 判据、不改速度档。
