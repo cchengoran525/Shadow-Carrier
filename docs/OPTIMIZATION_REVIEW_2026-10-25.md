@@ -394,3 +394,52 @@
 - imu 修影响启动航向 → 改后重跑 **T2** 开头；
 - NaN 修 sim/host；
 - 本批**不碰** T4 判据、不改速度档。
+
+---
+
+## 10. 回执 H：统筹批 #1-#5 执行记录（2026-10-25）
+
+> 基线 `50612d0`（本报告提交）→ 系列执行 7 个独立 commit，**均未推送**。全程未改
+> `follow_controller.py`（T4 冻结），未烧固件，未动 V1 速度/转向增益。
+
+### 10.1 改动清单
+
+| # | commit | 对应裁决 | 内容 | 验收结果 |
+|---|---|---|---|---|
+| 1 | `45e3eb5` | §7.1-① SIM_TURN | `_fc_mod.TURN_ENABLED = TURN_ON`（旧代码只设 True 从不设 False → off 臂假对照） | py_compile 过；本机无 Webots，剧本级验证留板/PC（10.3-⑤） |
+| 2 | `1b33d7d` | §7.1-⑤ /turn TOCTOU | `_turn_start` 的 active 检查+置位同入 `turn_lock`（预占位）；`_turn_worker` 初始化挪入 try，补 y0=None 兜底（imu_lost + finally 清位，防预占位卡死） | glue 新增 **G 段 5 组断言**全过：活跃期拒 / 并发 10 线程 Barrier 抢占恰 1 成功 / IMU 拒绝不残留 active / deg=0 即 ok+STOP / y0=None 兜底清位 |
+| 3 | `4e3de51` | §7.1-③ imu dt 缺口 | 重零分支收尾弃一拍 + 重采 `t_prev`（旧代码：阻塞期旋转丢失 + 下一拍 dt≈0.8s 过积分） | py_compile 过；实机验证 = 重跑 T2 开头（10.3-③） |
+| 4 | `eee071d` | §7.1-④ NaN | host：新增 `_clamp_pose()`（`math.isfinite`）用于 `gimbal_send`，非有限值拒收该轴；sim：`_execute_ascii` 的 PAN/TLT 加 isfinite 守卫（`clamp(nan,0,180)` 的 min/max 比较序会落 180°） | glue 新增 **H 段**全过：NaN/inf 拒收该轴·混合请求有效轴照发·越界钳位不变·`_last_pose` 不被污染；sim 侧 py_compile（固件侧 UB duty 押后到固件批） |
+| 5 | `e78bfb2` | §1-#2 BACK_SPD | `_FC_KEYS` 摘除 BACK_SPD + 面板预设同步去掉 + glue 新增 **I 段** | get/set/持久化三处均无假键；真键 MIN_SPD 照常生效（applied/文件均验证）；面板 JS `node --check` 过 |
+| 6 | `ff499fe` | §1-#5 uart_reader | 删空读 `else: sleep(0.05)`（termios VMIN=0/VTIME=1 已阻塞 ~0.1s，双等待把 OBS 处理延迟上限拖到 0.15s） | py_compile + glue 全过；延迟上限 0.15→0.1s |
+| 7 | `e3f62a2` | §1-#8 弃用横幅 | video_stream.py / video_stream_fast.py 文件头弃用说明 + 启动即 stderr 警告（fast 注明与 yolo_daemon v3 的 stdout/stderr 协议不兼容、恒无检测结果） | 本机启动 fast 验证横幅输出；py_compile 过 |
+
+### 10.2 回归（2026-10-25，Windows 本机离线）
+
+Windows 无 termios → 用 termios/fcntl 空桩 + runpy 的 runner 执行（runner 放系统临时目录，不入仓）：
+
+- **scripts 11 套全部 PASS**：follow_dt · passby_lock_confirm · control_glue（含新 G/H/I 段）· turn_pivot · yaw_rate(5/5) · weak_cue · leg_follow(8/8) · hri_bridge · pick_safe_spot(9/9) · move_gate · hri_receive_close
+- **world/fusion 4 套全部 PASS**：lidar_guard(58/58) · sector_score(24/24) · stamp_objects · geometry_map_wrap
+- 环境补齐：本机 pip 装 `opencv-python-headless` 5.0.0（3 套 cv2 依赖测试因此可跑）；无 Webots → sim 改动仅 py_compile。
+
+### 10.3 板端待办（上电后，对应统筹 §9.3）
+
+1. sync + `systemctl restart rk-control`；smoke：`/motion/config` 页面与 GET 返回均无 BACK_SPD；`/healthz` 正常。
+2. **/turn 锁 smoke**：连续两次 POST /turn，第二次应返回 busy；POST /gimbal body `{"pan": NaN}`（Python json.loads 接受的字面量）应 400 且无 PAN 命令发出。
+3. **T0b 重跑**（/turn 锁影响手动转）。
+4. **T2 开头重跑**（imu 重零改动影响启动航向：重点看重零后航向不再阶跳）。
+5. Webots 侧重跑一次 passby off 臂（SIM_TURN=0），确认转向通道真的关（analyze_robustness 的 BASE 标签从此可信）。
+
+### 10.4 执行中发现的环境事项（与仓库无关，报机主）
+
+- `C:\Users\CChengOran\AppData\Local\Temp\inspect.py` 是一个分析 STM32CubeMX 安装包的 zipfile 探针残留——**会遮蔽标准库 `inspect`**：凡从 %TEMP% 运行 Python 脚本的进程都会加载它（本次回归一度出现的 `ERROR: FileNotFoundError ... SetupSTM32CubeMX...exe` 噪音即来源于此，已定位并绕过）。建议删除该文件。
+- 本仓离线测试套件在 Windows 上可完整运行（配合空桩 runner），后续收据可在本机复跑。
+
+### 10.5 未做（按 §9.2 裁决押后）
+
+- §1-#1/#3/#4/#6/#7（shm 缓存 / 截止期调度 / gimbal 降频 / 仿真缓存 / geometry 发布块）—— demo 后或 V2；
+- follow_controller 里 backing/back_done/BACK_MS 死分支本体删除 —— demo 后（T4 冻结，本批只摘了 rk_control 侧假键）；
+- 固件侧 NaN isfinite（toFloat("nan") → UB duty）—— 固件批；
+- §2-§6 全部押后项、雷达/PC 轨。
+
+*回执人：审查/执行线（ZCode 会话）。所有 commit 未推送，等统筹。*
