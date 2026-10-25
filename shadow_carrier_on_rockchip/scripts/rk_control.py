@@ -153,12 +153,16 @@ def _manual_forward(send=None, yaw_fn=None):
     return send(f"DIFF L{l} R{r}")
 
 def _turn_worker(deg, spd, pivot=False):
-    y0 = _read_yaw()
     t0 = time.monotonic()
-    with turn_lock:
-        turn_state.update(active=True, target=round(y0 + deg, 2), yaw=round(y0, 2),
-                          err=round(deg, 2), started=t0, result="running", pivot=pivot)
     try:
+        y0 = _read_yaw()
+        if y0 is None:      # 与 _turn_start 的 IMU 门之间的竞态窗兜底: 不 update 完整字段
+            with turn_lock: # 直接判 imu_lost, 靠 finally 清预占位(不会陷 active=True)
+                turn_state.update(result="imu_lost", started=t0)
+            return
+        with turn_lock:
+            turn_state.update(active=True, target=round(y0 + deg, 2), yaw=round(y0, 2),
+                              err=round(deg, 2), started=t0, result="running", pivot=pivot)
         while time.monotonic() - t0 < TURN_TIMEOUT_S:
             y = _read_yaw()
             if y is None:
@@ -195,10 +199,12 @@ def _turn_worker(deg, spd, pivot=False):
 def _turn_start(deg, spd=170, pivot=False):
     if _get_mode() != "manual":      # follow 模式由 follow 循环掌控底盘(单一控制器纪律,
         return False                 #  2026-10-14 双控制器抢底盘事故后定)
-    if turn_state.get("active"):
-        return False
     if _read_yaw() is None:          # IMU 不可用则拒绝(宁缺毋滥)
         return False
+    with turn_lock:                  # 检查+置位原子化(2026-10-25 修 TOCTOU): 旧代码无锁读
+        if turn_state.get("active"): #  active, 并发双 /turn 可双双通过检查 → 双 worker 抢底盘
+            return False
+        turn_state["active"] = True  # 预占位; worker 启动后会 update 完整字段
     threading.Thread(target=_turn_worker, args=(deg, spd, pivot), daemon=True).start()
     return True
 

@@ -153,4 +153,73 @@ rk.obs_state.update(t=now - 5, blocked=True, cm=10)
 assert rk._obs_guard("MOVE F 200") == "MOVE F 200"      # 过期 → 放行
 print("  blocked→STOP · cm30→STOP · DIFF前进→STOP · 后退/停止→放行 · 过期→放行")
 
+print("\n== G. /turn 门禁: active 原子占位 + IMU 拒绝不残留 (2026-10-25 §7.1-⑤) ==")
+import threading as _th
+_orig_uart_send, _orig_read_yaw, _orig_worker = rk.uart_send, rk._read_yaw, rk._turn_worker
+_sent_g = []
+rk.uart_send = lambda c: (_sent_g.append(c), True)[1]
+rk._read_yaw = lambda: 0.0
+assert rk._get_mode() == "manual"
+
+
+def _slow_worker(deg, spd, pivot=False):      # 占住 active 0.4s 的假 worker
+    time.sleep(0.4)
+    with rk.turn_lock:
+        rk.turn_state["active"] = False
+
+
+rk._turn_worker = _slow_worker
+assert rk._turn_start(30) is True
+time.sleep(0.05)
+assert rk._turn_start(30) is False, "worker 活跃期间必须拒绝(修复前: 无锁检查有双开窗口)"
+time.sleep(0.5)
+
+rk._turn_worker = _slow_worker
+bar = _th.Barrier(10)
+wins = []
+
+
+def _attempt():
+    bar.wait()
+    wins.append(rk._turn_start(30))
+
+
+_ts = [_th.Thread(target=_attempt) for _ in range(10)]
+[t.start() for t in _ts]
+[t.join() for t in _ts]
+assert sum(wins) == 1, f"并发 10 请求应恰好放行 1 个, 实际 {sum(wins)}"
+time.sleep(0.5)
+with rk.turn_lock:
+    assert rk.turn_state["active"] is False
+
+rk._read_yaw = lambda: None                    # IMU 缺失: 拒绝且不得残留 active=True
+assert rk._turn_start(30) is False
+with rk.turn_lock:
+    assert rk.turn_state["active"] is False, "IMU 拒绝路径不得残留 active=True"
+
+rk._read_yaw = lambda: 0.0                     # 真 worker: deg=0 立即到位 → ok + STOP 收尾
+rk._turn_worker = _orig_worker
+_sent_g.clear()
+assert rk._turn_start(0) is True
+time.sleep(0.3)
+with rk.turn_lock:
+    assert rk.turn_state["active"] is False and rk.turn_state["result"] == "ok"
+assert _sent_g[-1] == "STOP", _sent_g
+
+
+def _yaw_once():                               # _turn_start 的门读到 0 后, worker 再读变 None
+    rk._read_yaw = lambda: None
+    return 0.0
+
+
+rk._read_yaw = _yaw_once                       # y0=None 竞态窗: 兜底必须判 imu_lost 并清位
+assert rk._turn_start(30) is True
+time.sleep(0.3)
+with rk.turn_lock:
+    assert rk.turn_state["active"] is False, "y0=None 兜底必须清 active(防预占位卡死)"
+    assert rk.turn_state["result"] == "imu_lost"
+
+rk.uart_send, rk._read_yaw, rk._turn_worker = _orig_uart_send, _orig_read_yaw, _orig_worker
+print("  活跃期拒 · 并发10抢1 · IMU拒绝不残留 · deg=0即ok+STOP · y0=None兜底清位")
+
 print("\n全部断言通过")
