@@ -480,3 +480,20 @@ Windows 无 termios → 用 termios/fcntl 空桩 + runpy 的 runner 执行（run
 ### 11.3 推送
 
 7 个 commit 均**未推**，等统筹。除 §11.1 的 uart 小保护外，其余可随下一批一起推。
+
+---
+
+## 12. 回执 I：§11 复核修正记录（2026-10-25）
+
+> 基线 `837ff91`（§11 统筹复核提交）→ 2 个修正 commit，**未推送**。§11.1 两项全部落地。
+
+| # | commit | 对应 §11.1 | 内容 | 验收 |
+|---|---|---|---|---|
+| A | `eda8d6c` | uart 防自旋（必修项） | `uart_reader` 空读补 `time.sleep(0.01)` 退避：活 fd 下 VTIME=1 已阻塞 ~0.1s 几乎不触发；死 fd/EOF 时 `os.read` 立即返回空，无退避则 100% 自旋（恰是 C3 掉线场景）。延迟上限 ~110ms 仍优于旧 150ms | glue 新增 **J1**：假 fd + `os.read` 恒返空，0.25s 内 25 次迭代（10ms×25 精确吻合；断言 <200 防忙等，无退避时将 >10000） |
+| B | `a5c7e0e` | /turn start 失败回滚（极小概率项） | `_turn_start` 预占位后 `Thread.start()` 包 try/except：失败时清 `active`、`result="thread_fail"`、返回 False——否则 active 永久 True → /turn 永久 busy | glue 新增 **J2**：注入 start 抛异常的 Thread 类 → False + active 回滚 + result 正确 |
+
+**回归**：15 套离线测试全部 PASS（scripts 11 + world/fusion 4，同 §10.2 口径；test_control_glue 现含 A-J 九段）。
+
+**板端**：§11.2 待办不变（uart 退避不影响 smoke 步骤；/turn smoke 顺带覆盖正常路径）。
+
+*回执人：执行线（ZCode 会话）。两个修正 commit 未推送，等统筹。*
