@@ -66,8 +66,9 @@ PHANTOM_RATE = float(os.environ.get("SIM_PHANTOM_RATE",
                                     "0.35" if os.environ.get("SIM_SCENARIO") == "phantom" else "0"))
 PHANTOM_SEED = int(os.environ.get("SIM_PHANTOM_SEED", "7"))
 
-if TURN_ON:                     # 仿真内打开转向通道(实机开关不动)
-    _fc_mod.TURN_ENABLED = True
+_fc_mod.TURN_ENABLED = TURN_ON  # 仿真内同步开关(实机不动)。2026-10-25 修: 旧代码只在
+                                # TURN_ON 时设 True、从不设 False, 而 follow_controller 默认
+                                # 已是 True(10-20 起) → SIM_TURN=0 的 passby off 臂失效成假对照
 
 
 def clamp(value, low, high):
