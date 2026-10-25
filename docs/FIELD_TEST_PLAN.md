@@ -378,3 +378,71 @@ T11 八分镜全串
 - **GOTO_SAFE 首次必看方向**：`bearing` 右正 → 车应右转；反了改 `HRI_BEARING_TO_YAW_SIGN`。
 - **HIDE 中主人出画不中断**（设计如此）；RECEIVE 中出画 2s 才回 WAIT。
 - 动作桥是有界脉冲：APPROACH ≤3s、BACK_OFF 0.6s、GOTO_SAFE 转向 ≤3s + 前进 ≤1.5s；异常先 `/stop`。
+
+---
+
+## 11. 变更后的实地运行顺序（T + R，2026-10-25）
+
+> **R 系列 = 改动后的“健全性/回归”检查**（Regression/Robustness），不替代 T 系列功能验收；
+> T 系列判据不变。本节回答：**10-25 这批改动之后，实地按什么顺序跑、哪些必须重跑。**
+>
+> 10-25 改动：`SIM_TURN=0` 真正关转向、`/turn` TOCTOU 锁、imu 重零 dt、`/gimbal` NaN 拒收、
+> `BACK_SPD` 假键摘除、`uart_reader` 10ms 防自旋、旧推流脚本弃用横幅。
+> 麦轮 S3 是 V2 预写，**不影响 V1 实地**。
+
+### 11.1 变更 → 受影响测试
+
+| 变更 | 影响 | 必须重跑/新增 |
+|---|---|---|
+| `SIM_TURN=0` 真关转向 | **仅 Webots**；实机不受影响 | **R6**（PC 侧 off 臂） |
+| `/turn` TOCTOU 锁 | 手动原地转的并发/占位逻辑 | **T0b** + **R2** |
+| imu 重零弃一拍 + 重采 dt | 跟随启动后的航向连续性 | **T2 开头** + **R5** |
+| `/gimbal` NaN 拒收 | 云台指令安全（demo 期云台冻结，但面板可发） | **R3** |
+| `BACK_SPD` 假键摘除 | `/motion/config` 页面/持久化 | **R1** |
+| `uart_reader` 10ms 退避 | C3 掉线/OBS 延迟（活口几乎不变） | **R4** + T4/T10 的 OBS 段 |
+| 旧推流弃用横幅 | 无行为影响 | 不需要 |
+
+### 11.2 R 系列（实地健全性，新增）
+
+| ID | 场景 | 步骤 | 成功标准 | 时机 |
+|---|---|---|---|---|
+| **R0** | 离线回归门 | 跑 `scripts/test_*.py` + `world/fusion/test_*.py` | **17/17 PASS**（含 glue G/H/I/J） | 出发前 |
+| **R1** | 板端基线 | `health_check`；`/healthz`；`/motion/config` GET | FAIL=0；`uart.fail=0`；`obs_guard_veto` 字段在；**无 `BACK_SPD`** | 到场先做 |
+| **R2** | `/turn` 锁 | manual 下连续两次 POST `/turn` | 第二次 **busy**；只一个 worker；完成后 `active=false` | T0 后 |
+| **R3** | `/gimbal` NaN | POST `{"pan": NaN}`；再 `{"pan": NaN, "tilt": 100}` | 前者 **400 无 PAN**；后者只发 TLT；`/gimbal/center` 正常 | T0 后 |
+| **R4** | uart 死 fd / 防自旋 | 跟随时拔 C3 再插；看 `/healthz.uart.fail`、日志、CPU | fail 增长 + `[UART] send FAIL`；**CPU 不 100% 自旋**；车 ≤450ms 自停；重启 rk-control 恢复 | 收工前/故障注入 |
+| **R5** | imu 重零航向 | 启动跟随（触发重零），记重零前后 yaw | 航向**不阶跳**（<5°）；T2 开头直行稳定 | T1 后 |
+| **R6** | Webots `SIM_TURN=0` | PC：`SIM_TURN=0 ./run_passby.sh`，对照 `SIM_TURN=1` | off 臂**真的没有转向通道**；A/B 两臂行为可区分 | PC，可并行 |
+| **R7** | 回退演练 | `/stop` → `/mode/manual` → 手动 F/B → C3 拔插 | 接管 **≤1s**；车停；链路可恢复 | 收工前 |
+
+### 11.3 推荐顺序（一次布场）
+
+```
+出发前：R0 离线回归
+到场：  R1 基线
+        T0 链路 smoke
+        R2 /turn 锁 + R3 NaN + R5 imu 重零（快速健全性）
+        T0b 原地转（锁改动后必重跑）
+        T1 认主
+        T2 直线（imu 改动后重点看开头）
+        T3 转弯 / T6 静止 / T7 丢人
+        T4 passby（核心）
+        T9 HIDE / T10 RECEIVE（P1）
+        T11 八分镜
+收工：  R4 uart 拔插 + R7 回退
+PC：    R6 SIM_TURN=0 off 臂（可与实地并行）
+```
+
+### 11.4 中止线（R 系列）
+
+- R0 有 FAIL → 不上车；
+- R1 FAIL≠0 → 先修链路；
+- R2 出现**两个 worker** 或第二次不 busy → 停止手动转，查 `turn_lock`；
+- R3 出现 `PAN nan` 被钳到限位 → 停云台，查 `_clamp_pose`；
+- R4 CPU 自旋或车不停 → 立即 `/stop` + 重启 rk-control；
+- R5 航向阶跳 >5° → 不跑 T2/T4，先查 imu 重零；
+- R6 off 臂仍有转向 → A/B 数据作废，先修 `SIM_TURN`。
+
+### 11.5 一句话
+
+**T 系列照旧，但 T0b/T2 必须重跑；R0–R7 是这批改动的“体检”，R0/R1 不过就不上车。**
