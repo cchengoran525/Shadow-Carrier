@@ -285,4 +285,28 @@ assert _read_calls["n"] < 200, \
     f"死 fd 空读 0.25s 内 {_read_calls['n']} 次迭代 = 忙等(应有 10ms 退避)"
 print(f"  J1 死fd空读 0.25s → {_read_calls['n']} 次迭代(退避生效; 无退避时将 >10000)")
 
+# J2: 预占位后 Thread.start() 失败必须回滚(否则 active 永久 True → /turn 永久 busy)
+rk._read_yaw = lambda: 0.0
+
+
+class _BoomThread:
+    def __init__(self, *a, **k):
+        pass
+
+    def start(self):
+        raise RuntimeError("boom")
+
+
+_orig_thread_cls = rk.threading.Thread
+rk.threading.Thread = _BoomThread
+try:
+    assert rk._turn_start(30) is False, "start 失败应返回 False"
+finally:
+    rk.threading.Thread = _orig_thread_cls
+    rk._read_yaw = _orig_read_yaw
+with rk.turn_lock:
+    assert rk.turn_state["active"] is False, "start 失败必须回滚预占位"
+    assert rk.turn_state["result"] == "thread_fail"
+print("  J2 Thread.start 抛异常 → False + active 回滚 + result=thread_fail")
+
 print("\n全部断言通过")

@@ -205,7 +205,13 @@ def _turn_start(deg, spd=170, pivot=False):
         if turn_state.get("active"): #  active, 并发双 /turn 可双双通过检查 → 双 worker 抢底盘
             return False
         turn_state["active"] = True  # 预占位; worker 启动后会 update 完整字段
-    threading.Thread(target=_turn_worker, args=(deg, spd, pivot), daemon=True).start()
+    try:
+        threading.Thread(target=_turn_worker, args=(deg, spd, pivot), daemon=True).start()
+    except Exception:                # start 失败(如线程数上限): 必须回滚预占位,
+        with turn_lock:              # 否则 active 永久 True → /turn 永久 busy(统筹§11.1)
+            turn_state["active"] = False
+            turn_state["result"] = "thread_fail"
+        return False
     return True
 
 uart_fd = None
