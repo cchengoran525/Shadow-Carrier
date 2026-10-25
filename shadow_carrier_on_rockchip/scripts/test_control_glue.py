@@ -242,4 +242,22 @@ rk._last_pose.update(_pose0)
 rk.uart_send = _orig_uart_send
 print("  NaN/inf 拒收该轴 · 有效轴照发 · 越界钳位不变 · _last_pose 不被污染")
 
+print("\n== I. /motion/config 假调参键摘除 (2026-10-25 统筹批#5) ==")
+assert "BACK_SPD" not in rk._FC_KEYS
+assert "BACK_SPD" not in rk._motion_get(), \
+    "BACK_SPD 在 follow_controller 无任何读取方(backing 恒 False), 不得再作为可调键出现"
+import follow_controller as _fcm
+_min_spd0 = _fcm.MIN_SPD
+_tune0 = rk.MOTION_TUNE
+rk.MOTION_TUNE = os.path.join(tmp, "motion_tune.json")   # 持久化打到临时目录
+r = rk._motion_set({"BACK_SPD": 200, "MIN_SPD": 160})
+assert "BACK_SPD" not in r["applied"] and "BACK_SPD" not in r["config"], r["applied"]
+assert r["applied"].get("MIN_SPD") == 160, "真键不受影响"
+with open(rk.MOTION_TUNE) as f:
+    _saved = json.load(f)
+assert "BACK_SPD" not in _saved, "持久化文件不得再含假键"
+_fcm.MIN_SPD = _min_spd0
+rk.MOTION_TUNE = _tune0
+print("  get/set/持久化 三处均无 BACK_SPD · 真键(MIN_SPD)照常生效")
+
 print("\n全部断言通过")

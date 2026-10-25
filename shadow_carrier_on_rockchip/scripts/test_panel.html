@@ -424,8 +424,9 @@ async function applyMotion(){
 async function preset(){
   // 2026-10-24: 旧“标准档”是重载档之前的过期值（会降回带不动的档位），已删除；
   // 唯一预设 = 当前代码默认（10-21 重载档，YAW_K=1.0）。
+  // 2026-10-25: 摘除 BACK_SPD —— follow_controller 里零引用的假调参键(调了没反应还会回显)。
   const p = {BASE_SPD:245, MIN_SPD:155, PIVOT_PWM:240, MANUAL_FWD_SPD:255,
-             YAW_CORR_MAX:20, YAW_K:1.0, W_DES_GAIN:0.18, BACK_SPD:110, SEARCH_BACK_SPD:95,
+             YAW_CORR_MAX:20, YAW_K:1.0, W_DES_GAIN:0.18, SEARCH_BACK_SPD:95,
              HRI_APPROACH_SPD:120, HRI_BACK_SPD:120, HRI_GOTO_SPD:140, HRI_GOTO_TURN_SPD:220};
   await jpost('/motion/config', p); loadMotion();
 }

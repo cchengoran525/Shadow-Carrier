@@ -1218,7 +1218,9 @@ def _t1_status():
 
 # ====== 速度/力矩现场调参 (重载档) ======
 MOTION_TUNE = os.path.expanduser("~kickpi/hri_logs/motion_tune.json")
-_FC_KEYS = {"BASE_SPD", "MIN_SPD", "PIVOT_PWM", "YAW_CORR_MAX", "BACK_SPD",
+# 2026-10-25 摘除 BACK_SPD: follow_controller 里零引用(backing/back_done 是死分支)的
+# 假调参键 —— 现场调了没反应却会被持久化回显, 是排障陷阱(优化审查§1-#2, 统筹批#5)。
+_FC_KEYS = {"BASE_SPD", "MIN_SPD", "PIVOT_PWM", "YAW_CORR_MAX",
             "SEARCH_BACK_SPD", "MAX_OFFSET"}
 _BOOL_KEYS = {"TURN_ENABLED", "LEG_FOLLOW_ENABLED"}   # T2/T3/T6/T7 基线=关转向; 腿跟默认关
 _FC_FLOAT_KEYS = {"W_DES_GAIN": 5.0, "W_DES_MAX": 180.0, "YAW_K": 20.0,
