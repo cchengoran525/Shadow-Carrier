@@ -260,4 +260,29 @@ _fcm.MIN_SPD = _min_spd0
 rk.MOTION_TUNE = _tune0
 print("  get/set/持久化 三处均无 BACK_SPD · 真键(MIN_SPD)照常生效")
 
+print("\n== J. uart_reader 防自旋退避 (2026-10-25 统筹§11.1) ==")
+# 死 fd/EOF 时 os.read 立即返回空(b"")而非阻塞 0.1s —— 删掉旧 else-sleep 后若不加退避,
+# while 循环 100% 自旋(恰是 C3 掉线/重枚举场景)。0.25s 内迭代数应为 ~25 量级而非数万。
+_read_calls = {"n": 0}
+_orig_osread = os.read
+
+
+def _eof_read(fd, n):
+    _read_calls["n"] += 1
+    return b""
+
+
+os.read = _eof_read
+rk.uart_fd = 999                     # 假 fd; reader 只在 uart_fd 非 None 时循环
+_t = _th.Thread(target=rk.uart_reader, daemon=True)
+_t.start()
+time.sleep(0.25)
+rk.uart_fd = None
+_t.join(timeout=1.0)
+os.read = _orig_osread
+assert not _t.is_alive()
+assert _read_calls["n"] < 200, \
+    f"死 fd 空读 0.25s 内 {_read_calls['n']} 次迭代 = 忙等(应有 10ms 退避)"
+print(f"  J1 死fd空读 0.25s → {_read_calls['n']} 次迭代(退避生效; 无退避时将 >10000)")
+
 print("\n全部断言通过")

@@ -448,8 +448,11 @@ def uart_reader():
                                                  cm=int(parts[2]))
                         except Exception:
                             pass
-            # 空读不再 sleep: termios VMIN=0/VTIME=1(uart_open)已阻塞 ~0.1s,
-            # 旧 else-sleep(0.05) 把 OBS 行处理延迟上限拖到 0.15s(2026-10-25 优化审查§1-#5)
+            else:
+                # 活 fd: VTIME=1 已阻塞 ~0.1s, 这里几乎不触发; 死 fd/EOF: os.read 会
+                # 立即返回空 → 不退避则 100% 自旋(恰是 C3 掉线/重枚举场景)。
+                # 10ms 防自旋退避(2026-10-25 统筹§11.1), 延迟上限 ~110ms 仍优于旧 150ms。
+                time.sleep(0.01)
         except Exception:
             time.sleep(0.1)
 
