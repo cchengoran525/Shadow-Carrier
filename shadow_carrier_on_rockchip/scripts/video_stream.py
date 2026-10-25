@@ -2,6 +2,10 @@
 """
 video_stream.py — 实时摄像头 + NPU YOLO + MJPEG推流
 =====================================================
+⚠️ 已弃用(2026-10-25 标注, 优化审查§1-#8): 初代实现, 每帧 subprocess 重新加载模型;
+且检测键 class/confidence 与 v7 链的 c/p 不兼容 —— 误启动时 owner 侧静默空 person 池。
+现役脚本 = video_stream_v7.py(watchdog/原子帧写/双缓冲)。计划 demo 后移入 legacy/。
+
 用法:
     python3 video_stream.py                     # 默认端口8080
     python3 video_stream.py --port 9090         # 自定义端口
@@ -10,6 +14,9 @@ video_stream.py — 实时摄像头 + NPU YOLO + MJPEG推流
 
 Windows观看: 浏览器打开 http://192.168.137.190:8080/
 """
+import sys
+print("[DEPRECATED] video_stream.py 为初代实现(每帧重载模型/检测键不兼容 v7 链), "
+      "现役脚本 = video_stream_v7.py", file=sys.stderr)
 
 import cv2
 import subprocess

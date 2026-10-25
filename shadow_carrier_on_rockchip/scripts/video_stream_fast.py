@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""video_stream_fast.py - yolo_daemon常驻进程高速推流"""
+"""video_stream_fast.py - yolo_daemon常驻进程高速推流
+
+⚠️⚠️ 已弃用/不可用(2026-10-25 标注, 优化审查§7.3-6) ⚠️⚠️
+本脚本以 stdout=PIPE 读 yolo_daemon 的 JSON, 而 yolo_daemon v3 起把 stdout 重定向到
+/dev/null(丢弃 rknn 库调试打印)、JSON 改走 stderr —— 协议已对不上: readline 恒 EOF,
+恒返回 {"error":"parse"}, 推流黑屏。请改用现役 video_stream_v7.py。计划 demo 后移入 legacy/。
+"""
+import sys
+print("[DEPRECATED] video_stream_fast.py 与现行 yolo_daemon 协议不兼容(JSON 走 stderr 而非"
+      " stdout), 恒无检测结果; 现役脚本 = video_stream_v7.py", file=sys.stderr)
 import cv2, subprocess, os, time, threading, json, socketserver
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
