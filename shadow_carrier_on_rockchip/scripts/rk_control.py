@@ -448,8 +448,8 @@ def uart_reader():
                                                  cm=int(parts[2]))
                         except Exception:
                             pass
-            else:
-                time.sleep(0.05)
+            # 空读不再 sleep: termios VMIN=0/VTIME=1(uart_open)已阻塞 ~0.1s,
+            # 旧 else-sleep(0.05) 把 OBS 行处理延迟上限拖到 0.15s(2026-10-25 优化审查§1-#5)
         except Exception:
             time.sleep(0.1)
 
