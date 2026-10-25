@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """rk_control.py v6 - USB直连C3 + 遥控/跟随模式切换 + 云台凝视(W1)"""
-import os, sys, termios, time, threading, json, socketserver, urllib.request
+import os, sys, math, termios, time, threading, json, socketserver, urllib.request
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 UART = "/dev/ttyACM0"
@@ -369,18 +369,31 @@ def safety_status():
             "escape": env.get("escape"), "n_points": env.get("n_points"),
             "person_legs": env.get("person_legs")}
 
+def _clamp_pose(v, lo, hi):
+    """角度钳位 + 非有限值拒收(2026-10-25 §7.1-④): Python json.loads 默认接受 NaN/Infinity,
+    "pan": NaN 经 min/max 的 nan 比较序会落到 hi(=PAN/TILT 顶死限位)。返回 None=拒收该轴。"""
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(v):
+        return None
+    return max(lo, min(hi, v))
+
 def gimbal_send(body):
     """body: {"pan":deg} 和/或 {"tilt":deg}, 绝对角度。
-    带指令限位(防顶死) + 记录最近指令(供斜坡起步)"""
+    带指令限位(防顶死) + 记录最近指令(供斜坡起步); NaN/inf 拒收该轴(宁拒勿顶死)"""
     cmds = []
     if 'pan' in body:
-        p = max(PAN_MIN, min(PAN_MAX, float(body['pan'])))
-        _last_pose["pan"] = p
-        cmds.append(f"PAN {p:.1f}")
+        p = _clamp_pose(body['pan'], PAN_MIN, PAN_MAX)
+        if p is not None:
+            _last_pose["pan"] = p
+            cmds.append(f"PAN {p:.1f}")
     if 'tilt' in body:
-        t = max(TILT_MIN, min(TILT_MAX, float(body['tilt'])))
-        _last_pose["tilt"] = t
-        cmds.append(f"TLT {t:.1f}")
+        t = _clamp_pose(body['tilt'], TILT_MIN, TILT_MAX)
+        if t is not None:
+            _last_pose["tilt"] = t
+            cmds.append(f"TLT {t:.1f}")
     if not cmds:
         return False
     ok = True

@@ -905,9 +905,12 @@ class ShadowCarrierSimulation:
             self.last_ascii = f"DIFF L{left} R{right}"
         elif action in {"PAN", "TLT"} and len(parts) == 2:
             try:
-                angle = clamp(float(parts[1]), 0.0, 180.0)
+                v = float(parts[1])
             except ValueError:
                 return
+            if not math.isfinite(v):    # "PAN nan": clamp 的 min/max 对 nan 比较序会落到 180
+                return                  # (顶死限位), 非有限值直接拒收(2026-10-25 §7.1-④)
+            angle = clamp(v, 0.0, 180.0)
             if action == "PAN":
                 self.pan_motor.setPosition(math.radians(90.0 - angle))
             else:

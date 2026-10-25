@@ -222,4 +222,24 @@ with rk.turn_lock:
 rk.uart_send, rk._read_yaw, rk._turn_worker = _orig_uart_send, _orig_read_yaw, _orig_worker
 print("  活跃期拒 · 并发10抢1 · IMU拒绝不残留 · deg=0即ok+STOP · y0=None兜底清位")
 
+print("\n== H. gimbal_send NaN/inf 防线 (2026-10-25 §7.1-④ host 侧) ==")
+_sent_h = []
+rk.uart_send = lambda c: (_sent_h.append(c), True)[1]
+_pose0 = dict(rk._last_pose)
+assert rk.gimbal_send({"pan": float("nan")}) is False
+assert _sent_h == [] and rk._last_pose["pan"] == _pose0["pan"], \
+    "NaN pan 不得产生任何命令(修复前: min/max 的 nan 比较序会钳到 PAN_MAX=165 顶死)"
+assert rk.gimbal_send({"pan": float("inf")}) is False
+assert rk.gimbal_send({"pan": float("nan"), "tilt": 100.0}) is True
+assert _sent_h == ["TLT 100.0"], _sent_h
+assert rk.gimbal_send({"pan": 45.0, "tilt": float("nan")}) is True
+assert _sent_h[-1] == "PAN 45.0", _sent_h
+assert rk.gimbal_send({"pan": 200.0}) is True          # 越界仍走正常钳位
+assert _sent_h[-1] == f"PAN {rk.PAN_MAX:.1f}", _sent_h
+assert json.loads('{"pan": NaN}')["pan"] != json.loads('{"pan": NaN}')["pan"], \
+    "前提自检: json.loads 默认接受 NaN(防线必要性的依据)"
+rk._last_pose.update(_pose0)
+rk.uart_send = _orig_uart_send
+print("  NaN/inf 拒收该轴 · 有效轴照发 · 越界钳位不变 · _last_pose 不被污染")
+
 print("\n全部断言通过")
