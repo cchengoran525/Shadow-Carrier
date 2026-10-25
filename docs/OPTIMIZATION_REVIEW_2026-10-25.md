@@ -443,3 +443,40 @@ Windows 无 termios → 用 termios/fcntl 空桩 + runpy 的 runner 执行（run
 - §2-§6 全部押后项、雷达/PC 轨。
 
 *回执人：审查/执行线（ZCode 会话）。所有 commit 未推送，等统筹。*
+
+---
+
+## 11. 统筹复核（2026-10-25，新改动）
+
+### 11.1 结论：7 条全部可接受，1 条需补一个小保护
+
+| # | 改动 | 复核 |
+|---|---|---|
+| 1 | `45e3eb5` SIM_TURN | ✅ 正确；`TURN_ENABLED = TURN_ON`，off 臂不再是假对照 |
+| 2 | `1b33d7d` /turn TOCTOU | ✅ 预占位 + y0=None 兜底 + G 段 5 组断言；并发 10 抢 1 覆盖到位 |
+| 3 | `4e3de51` imu dt | ✅ 重零后弃一拍 + 重采 `t_prev`，方向正确 |
+| 4 | `eee071d` NaN | ✅ host `_clamp_pose(isfinite)` + sim isfinite；H 段覆盖 |
+| 5 | `e78bfb2` BACK_SPD | ✅ `_FC_KEYS`/面板/持久化三处摘除；I 段覆盖 |
+| 6 | `ff499fe` uart 双等待 | ⚠️ **需补一个保护**（见下） |
+| 7 | `e3f62a2` 弃用横幅 | ✅ 零风险；启动即 stderr 警告 |
+
+**唯一要改的：`uart_reader` 删空读 sleep 的死 fd 风险**
+- 活口上：VTIME=1 确实阻塞 ~0.1s，删 sleep 没问题；
+- **死 fd/EOF**：`os.read` 可能立即返回 `b""`（不是等 0.1s）→ `while uart_fd is not None` 变成 **100% 忙等**；
+- 这恰好是报告最关心的“C3 掉线/重新枚举”场景；旧 `else: sleep(0.05)` 虽然慢，但防了自旋；
+- 建议：`if not data: time.sleep(0.01)`（或显式 EOF 处理）。延迟上限仍 ≤110ms，优于原来 150ms，且不会自旋。
+
+**另一个极小概率项**：`/turn` 预占位后若 `Thread.start()` 抛异常，`active` 会永久 True；建议 `try/except` 里清位（不影响当前测试）。
+
+### 11.2 板端待办（上电后）
+
+1. sync + `systemctl restart rk-control`；
+2. `/motion/config` 页面与 GET 均无 `BACK_SPD`；`/healthz` 正常；
+3. **/turn 锁 smoke**：连续两次 POST，第二次 busy；`/gimbal` 发 `{"pan": NaN}` → 400 且无 PAN；
+4. **T0b 重跑**（/turn 锁）；
+5. **T2 开头重跑**（imu 重零后航向不阶跳）；
+6. Webots `SIM_TURN=0` off 臂重跑，确认转向通道真的关。
+
+### 11.3 推送
+
+7 个 commit 均**未推**，等统筹。除 §11.1 的 uart 小保护外，其余可随下一批一起推。
