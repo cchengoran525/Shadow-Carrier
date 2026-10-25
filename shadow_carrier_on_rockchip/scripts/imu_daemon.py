@@ -169,6 +169,11 @@ def main():
                 os.remove(zero_flag)
             except OSError:
                 pass
+            # 2026-10-25 修(优化审查§7.1-③): calibrate2 阻塞 ~0.8s 期间无采样, 本拍 dt
+            # 已过期——旧代码仍用它积分(阻塞期旋转丢失), 且下一拍 dt≈0.8s 会把新样本
+            # 过积分(50°/s 转动下合计航向阶跳数十度)。弃一拍 + 重采 t_prev。
+            t_prev = time.monotonic()
+            continue
         try:
             gx, gy, gz = dev.gyro_raw()
             r = (gz - bz) / GYRO_LSB_PER_DPS
